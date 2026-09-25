@@ -99,18 +99,72 @@ target path or selected configuration changes — no manual save action is requi
 [`ISettingsService`](Application/Abstractions/ISettingsService.cs) and its implementation,
 [`SettingsService`](Infrastructure/Services/SettingsService.cs), for details.
 
+## Logging
+
+The application logs to a rolling daily file at:
+
+```
+%APPDATA%\DotNetTestRunner\logs\testrunner-<date>.log
+```
+
+Each entry records a timestamp, log level, and the Windows user account that produced it, for
+example:
+
+```
+[2026-09-25 14:10:49.723] [INF] [User:jdoe] Application started.
+[2026-09-25 14:11:02.104] [INF] [User:jdoe] Test run started. Run: Running all tests, Target: C:\src\App.sln, Configuration: MIQA, Filter: (none)
+[2026-09-25 14:11:18.552] [WRN] [User:jdoe] Test run summary for Running all tests: 11 passed, 1 failed. Failed tests: ["MyApp.Tests.FooTests.Bar_ShouldReturnTrue"]
+```
+
+What gets logged:
+
+- Application started and stopped (normal shutdown).
+- Unhandled/crash conditions from the UI thread, background threads, and unobserved task
+  exceptions, so an unexpected stop leaves a record of what caused it.
+- Each test run's start (target, configuration, filter), completion (exit code, duration),
+  and a pass/fail summary naming any failed tests.
+
+Log verbosity and rolling behavior are configured in `logsettings.json`, deployed next to the
+application executable:
+
+```json
+{
+  "Logging": {
+    "MinimumLevel": "Information",
+    "RollingInterval": "Day",
+    "RetainedFileCountLimit": 31,
+    "FileSizeLimitBytes": 10485760,
+    "RollOnFileSizeLimit": true
+  }
+}
+```
+
+- `MinimumLevel`: `Verbose`, `Debug`, `Information`, `Warning`, `Error`, or `Fatal`.
+- `RollingInterval`: `Infinite`, `Year`, `Month`, `Day`, `Hour`, or `Minute`.
+- `RetainedFileCountLimit`: number of rolled files kept (older files are deleted), or `null`
+  to keep them all.
+- `FileSizeLimitBytes`: size at which a file rolls over regardless of the interval, or `null`
+  to disable.
+- `RollOnFileSizeLimit`: whether `FileSizeLimitBytes` rolling is enabled.
+
+See [`ILoggingSettingsProvider`](Application/Abstractions/ILoggingSettingsProvider.cs),
+[`ITestRunLogger`](Application/Abstractions/ITestRunLogger.cs), and their implementations in
+[`Infrastructure/Logging`](Infrastructure/Logging) for details.
+
 ## Project Layout
 
 This project follows a layered architecture. See [AGENTS.md](AGENTS.md) for the full
 folder-structure and styling convention reference.
 
 - `MainWindow.xaml` / `.cs`: WPF main window (custom title bar/header, UI layout, minimal code-behind).
-- `Application/Abstractions/`: service interfaces (`ISettingsService`).
-- `Domain/Models/`: serializable value models (`TestRunnerSettings`).
-- `Infrastructure/Services/`: concrete service implementations (`SettingsService`).
+- `Application/Abstractions/`: service interfaces (`ISettingsService`, `ILoggingSettingsProvider`, `ITestRunLogger`).
+- `Domain/Models/`: serializable value models (`TestRunnerSettings`, `LoggingSettings`).
+- `Infrastructure/Services/`: concrete service implementations (`SettingsService`, `LoggingSettingsProvider`).
+- `Infrastructure/Logging/`: Serilog bootstrap and `ITestRunLogger` implementation (`AppLoggerBootstrapper`, `TestRunLogger`).
 - `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel`).
 - `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
 - `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.
+- `logsettings.json`: log level and rolling file configuration, deployed alongside the executable.
 - `DotNetTestRunner.csproj`: application project.
 
 ## Header / Title Bar

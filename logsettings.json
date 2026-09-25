@@ -1,0 +1,9 @@
+{
+  "Logging": {
+    "MinimumLevel": "Information",
+    "RollingInterval": "Day",
+    "RetainedFileCountLimit": 31,
+    "FileSizeLimitBytes": 10485760,
+    "RollOnFileSizeLimit": true
+  }
+}

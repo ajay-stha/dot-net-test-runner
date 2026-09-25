@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Added structured logging via Serilog: application start/stop events, unhandled/crash
+  conditions (UI dispatcher, `AppDomain`, and unobserved task exceptions), and per-test-run
+  activity (start, completion, and pass/fail summaries with failed test names and the
+  Windows user account that ran them) are written to a rolling daily log file under
+  `%APPDATA%\DotNetTestRunner\logs\`.
+- Added `logsettings.json` (deployed alongside the executable) to configure the minimum log
+  level and rolling file behavior (rolling interval, retained file count, and file size
+  limit) without recompiling. See `ILoggingSettingsProvider`/`LoggingSettingsProvider` and
+  `AppLoggerBootstrapper`.
+- Added `ITestRunLogger`/`TestRunLogger` following the existing layered architecture
+  (`Application/Abstractions`, `Infrastructure/Logging`, `Domain/Models`).
+
 ## [1.0.1] - 2026-09-25
 
 ### Added
