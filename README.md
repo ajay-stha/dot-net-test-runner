@@ -29,11 +29,13 @@ configuration for pushes to `main`, pull requests, and manual runs.
 The application version is defined by the `<Version>` property in
 `DotNetTestRunner.csproj`. Use semantic versions such as `1.0.0` or `1.1.0`.
 When that value changes on `main`, the **Release** workflow automatically
-publishes a self-contained Windows x64 package.
+publishes a self-contained Windows x64 package, creates the corresponding
+`v<Version>` tag and GitHub Release, and attaches the ZIP to the release.
 
 Creating a semantic-version tag such as `v1.2.3` also runs the workflow. For a
 tagged release, the version from the tag is applied to the published application
-and artifact, even if the project file contains a different version.
+and artifact, even if the project file contains a different version. The ZIP is
+attached to the GitHub Release for that tag.
 
 To create a downloadable package manually:
 
@@ -43,8 +45,9 @@ To create a downloadable package manually:
 4. When the workflow finishes, download the versioned
    `DotNetTestRunner-v*-win-*` artifact from the workflow run.
 
-The release workflow publishes a self-contained Windows application and stores
-it as a ZIP artifact for 30 days. The target computer does not need a separate
+The release workflow publishes a self-contained Windows application. Workflow
+artifacts are retained for 30 days; assets attached to GitHub Releases remain
+available with their releases. The target computer does not need a separate
 .NET installation.
 
 ## Use the Application

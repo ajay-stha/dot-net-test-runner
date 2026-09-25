@@ -95,6 +95,8 @@ jobs:
     needs: version
     if: needs.version.outputs.changed == 'true'
     runs-on: windows-latest
+    permissions:
+      contents: write
     env:
       ARCHITECTURE: ${{ inputs.architecture || 'x64' }}
 
@@ -132,3 +134,42 @@ jobs:
           path: release\DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Create GitHub release
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ needs.version.outputs.number }}"
+          $tag = "v$version"
+          $archive = "release\DotNetTestRunner-v$version-win-${{ env.ARCHITECTURE }}.zip"
+          $isPrerelease = $version.Contains("-")
+
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+              gh release upload $tag $archive `
+                  --repo "${{ github.repository }}" `
+                  --clobber
+          }
+          else {
+              $arguments = @(
+                  "release", "create", $tag, $archive,
+                  "--repo", "${{ github.repository }}",
+                  "--target", "${{ github.sha }}",
+                  "--title", ".NET Test Runner $tag",
+                  "--generate-notes"
+              )
+
+              if ($isPrerelease) {
+                  $arguments += "--prerelease"
+              }
+
+              & gh @arguments
+          }
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create or update GitHub release $tag."
+          }
