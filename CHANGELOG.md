@@ -24,6 +24,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Enabled window-level layout rounding and pixel snapping to keep borders, icons, and text
+  crisp on high-DPI displays and fractional Windows scaling.
 - Improved log readability with stable single-line event formats (`RUN START`, `RUN END`,
   `RUN SUMMARY`, and `TEST FAILED`), normalized embedded error and stack-trace line breaks,
   and concise duration values.
