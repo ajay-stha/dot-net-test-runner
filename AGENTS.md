@@ -30,6 +30,7 @@ application, so conventions are consistent across both codebases.
 | `Infrastructure/Services/` | Concrete service implementations (`SettingsService`). |
 | `Presentation/ViewModels/` | MVVM view models (`MainWindowViewModel`). |
 | `Presentation/Commands/` | `RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>` (hand-rolled `ICommand` implementations). |
+| `Presentation/Behaviors/` | Reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log). |
 | `Styles/` | Shared XAML resource dictionary (`Styles.xaml`) — see [Styles Convention](#styles-convention) below. |
 | `bin/`, `obj/` | Build output (git-ignored). |
 

@@ -21,6 +21,19 @@ All notable changes to this project are documented in this file.
 - Added `ITestRunLogger`/`TestRunLogger` following the existing layered architecture
   (`Application/Abstractions`, `Infrastructure/Logging`, `Domain/Models`).
 
+### Changed
+
+- Refreshed the main window's visual design: a refined dark color palette, elevated cards
+  with soft shadows, a clearer button hierarchy (a filled primary "Run All", an
+  accent-outlined "Run Selected", and ghost-style secondary actions), icon-labeled buttons
+  and section headers, and rounded status "chip" badges for the Running/Passed/Failed
+  indicator.
+- Combined the target path and configuration toolbars into a single card to reduce visual
+  clutter and give the test explorer/output panes more vertical space.
+- The Execution Output panel now renders as a colorized log (`Presentation/Behaviors/OutputLogBehavior`)
+  instead of plain text, highlighting section headers, echoed commands, and passed/failed
+  result lines so failures are easy to spot at a glance.
+
 ## [1.0.1] - 2026-09-25
 
 ### Added

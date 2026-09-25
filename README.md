@@ -167,6 +167,7 @@ folder-structure and styling convention reference.
 - `Infrastructure/Logging/`: Serilog bootstrap and `ITestRunLogger` implementation (`AppLoggerBootstrapper`, `TestRunLogger`).
 - `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel`).
 - `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
+- `Presentation/Behaviors/`: reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log).
 - `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.
 - `logsettings.json`: log level and rolling file configuration, deployed alongside the executable.
 - `DotNetTestRunner.csproj`: application project.

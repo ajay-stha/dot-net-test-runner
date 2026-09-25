@@ -1,8 +1,9 @@
-﻿<Window
+<Window
     x:Class="DotNetTestRunner.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="clr-namespace:DotNetTestRunner.Presentation.ViewModels"
+    xmlns:behaviors="clr-namespace:DotNetTestRunner.Presentation.Behaviors"
     x:Name="RootWindow"
     Title=".NET Test Runner"
     Width="1180"
@@ -143,7 +144,7 @@
                                  Stretch="Uniform">
                             <Canvas Width="14" Height="14">
                                 <Path Data="M 2 7 L 5.5 11 L 12 3"
-                                      Stroke="#45C786"
+                                      Stroke="{StaticResource SuccessBrush}"
                                       StrokeEndLineCap="Round"
                                       StrokeLineJoin="Round"
                                       StrokeStartLineCap="Round"
@@ -159,7 +160,7 @@
                                  Stretch="Uniform">
                             <Canvas Width="14" Height="14">
                                 <Path Data="M 3 3 L 11 11 M 11 3 L 3 11"
-                                      Stroke="#F35B6B"
+                                      Stroke="{StaticResource DangerBrush}"
                                       StrokeEndLineCap="Round"
                                       StrokeStartLineCap="Round"
                                       StrokeThickness="2.4" />
@@ -265,7 +266,7 @@
                                  Stretch="Uniform">
                             <Canvas Width="14" Height="14">
                                 <Path Data="M 2 7 L 5.5 11 L 12 3"
-                                      Stroke="#45C786"
+                                      Stroke="{StaticResource SuccessBrush}"
                                       StrokeEndLineCap="Round"
                                       StrokeLineJoin="Round"
                                       StrokeStartLineCap="Round"
@@ -281,7 +282,7 @@
                                  Stretch="Uniform">
                             <Canvas Width="14" Height="14">
                                 <Path Data="M 3 3 L 11 11 M 11 3 L 3 11"
-                                      Stroke="#F35B6B"
+                                      Stroke="{StaticResource DangerBrush}"
                                       StrokeEndLineCap="Round"
                                       StrokeStartLineCap="Round"
                                       StrokeThickness="2.4" />
@@ -359,45 +360,92 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
+        <!--  Target + configuration card. Combined into a single elevated card (two stacked rows) to cut down on toolbar clutter.  -->
         <Border
             Grid.Row="0"
             Margin="0,0,0,10"
-            Padding="10"
+            Padding="14,12"
             Background="{StaticResource CardBrush}"
             BorderBrush="{StaticResource BorderBrush}"
             BorderThickness="1"
-            CornerRadius="6">
+            CornerRadius="8"
+            Effect="{StaticResource CardShadowEffect}">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <TextBlock
-                    Grid.Column="0"
-                    VerticalAlignment="Center"
-                    Text="Target (.sln/.csproj):" />
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <TextBox
-                    Grid.Column="2"
-                    VerticalAlignment="Center"
-                    IsReadOnly="True"
-                    Text="{Binding TargetPath}" />
+                    <TextBlock
+                        Grid.Column="0"
+                        VerticalAlignment="Center"
+                        Text="Target (.sln/.csproj):" />
 
-                <Button
-                    Grid.Column="4"
-                    Command="{Binding BrowseTargetCommand}"
-                    Content="Browse..." />
+                    <TextBox
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        IsReadOnly="True"
+                        Text="{Binding TargetPath}" />
+
+                    <Button
+                        Grid.Column="4"
+                        Command="{Binding BrowseTargetCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock
+                                Margin="0,0,6,0"
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="12"
+                                Text="&#xE8B7;" />
+                            <TextBlock VerticalAlignment="Center" Text="Browse..." />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock
+                        Grid.Column="0"
+                        Margin="0,0,8,0"
+                        VerticalAlignment="Center"
+                        Text="Configuration:" />
+
+                    <ComboBox
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        IsEditable="False"
+                        ItemsSource="{Binding Configurations}"
+                        SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock
+                        Grid.Column="3"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Foreground="{StaticResource SecondaryTextBrush}"
+                        Text="{Binding StatusText}" />
+                </Grid>
             </Grid>
         </Border>
 
+        <!--  Action toolbar. Run All is the high-emphasis primary action; Run Selected is medium-emphasis; the rest are low-emphasis ghost buttons.  -->
         <Border
             Grid.Row="1"
             Margin="0,0,0,10"
@@ -405,93 +453,106 @@
             Background="{StaticResource CardBrush}"
             BorderBrush="{StaticResource BorderBrush}"
             BorderThickness="1"
-            CornerRadius="6">
+            CornerRadius="8"
+            Effect="{StaticResource CardShadowEffect}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <TextBlock
-                    Grid.Column="0"
-                    Margin="0,0,8,0"
-                    VerticalAlignment="Center"
-                    Text="Configuration:" />
+                <Button Grid.Column="0" Command="{Binding RefreshTestsCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Text="&#xE72C;" />
+                        <TextBlock VerticalAlignment="Center" Text="Refresh Tests" />
+                    </StackPanel>
+                </Button>
 
-                <ComboBox
-                    Grid.Column="1"
-                    VerticalAlignment="Center"
-                    IsEditable="False"
-                    ItemsSource="{Binding Configurations}"
-                    SelectedItem="{Binding SelectedConfiguration, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Button
+                    Grid.Column="2"
+                    Command="{Binding RunAllCommand}"
+                    Style="{StaticResource PrimaryButtonStyle}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Foreground="White"
+                            Text="&#xE768;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Foreground="White"
+                            Text="Run All" />
+                    </StackPanel>
+                </Button>
 
-                <TextBlock
+                <Button
                     Grid.Column="4"
-                    VerticalAlignment="Center"
-                    Foreground="{StaticResource SecondaryTextBrush}"
-                    Text="{Binding StatusText}" />
+                    Command="{Binding RunSelectedCommand}"
+                    Style="{StaticResource AccentOutlineButtonStyle}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Foreground="{StaticResource AccentBrush}"
+                            Text="&#xE73E;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Foreground="{StaticResource AccentBrush}"
+                            Text="Run Selected" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="6" Command="{Binding ClearSelectionCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Text="&#xE711;" />
+                        <TextBlock VerticalAlignment="Center" Text="Clear Selection" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="8" Command="{Binding ClearLogCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Text="&#xE74D;" />
+                        <TextBlock VerticalAlignment="Center" Text="Clear Log" />
+                    </StackPanel>
+                </Button>
             </Grid>
         </Border>
 
         <Border
             Grid.Row="2"
-            Margin="0,0,0,10"
             Padding="10"
             Background="{StaticResource CardBrush}"
             BorderBrush="{StaticResource BorderBrush}"
             BorderThickness="1"
-            CornerRadius="6">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="10" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <Button
-                    Grid.Column="0"
-                    Command="{Binding RefreshTestsCommand}"
-                    Content="Refresh Tests" />
-
-                <Button
-                    Grid.Column="2"
-                    Command="{Binding RunAllCommand}"
-                    Content="Run All" />
-
-                <Button
-                    Grid.Column="4"
-                    Command="{Binding RunSelectedCommand}"
-                    Content="Run Selected" />
-
-                <Button
-                    Grid.Column="6"
-                    Command="{Binding ClearSelectionCommand}"
-                    Content="Clear Selection" />
-
-                <Button
-                    Grid.Column="8"
-                    Command="{Binding ClearLogCommand}"
-                    Content="Clear Log" />
-            </Grid>
-        </Border>
-
-        <Border
-            Grid.Row="3"
-            Padding="10"
-            Background="{StaticResource CardBrush}"
-            BorderBrush="{StaticResource BorderBrush}"
-            BorderThickness="1"
-            CornerRadius="6">
+            CornerRadius="8"
+            Effect="{StaticResource CardShadowEffect}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*" MinWidth="280" />
@@ -505,12 +566,23 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock
+                    <StackPanel
                         Grid.Row="0"
                         Margin="0,0,0,8"
-                        FontWeight="SemiBold"
-                        Foreground="{StaticResource PrimaryTextBrush}"
-                        Text="Test Explorer" />
+                        Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="14"
+                            Foreground="{StaticResource AccentBrush}"
+                            Text="&#xE8B7;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontWeight="SemiBold"
+                            Foreground="{StaticResource PrimaryTextBrush}"
+                            Text="Test Explorer" />
+                    </StackPanel>
 
                     <TreeView Grid.Row="1" ItemsSource="{Binding TestClasses}">
                         <TreeView.ItemContainerStyle>
@@ -542,80 +614,98 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock
-                            Grid.Column="0"
-                            FontWeight="SemiBold"
-                            Foreground="{StaticResource PrimaryTextBrush}"
-                            Text="Execution Output" />
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <TextBlock
+                                Margin="0,0,6,0"
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe MDL2 Assets"
+                                FontSize="14"
+                                Foreground="{StaticResource AccentBrush}"
+                                Text="&#xE756;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontWeight="SemiBold"
+                                Foreground="{StaticResource PrimaryTextBrush}"
+                                Text="Execution Output" />
+                        </StackPanel>
 
                         <StackPanel
                             Grid.Column="2"
                             VerticalAlignment="Center"
                             Orientation="Horizontal">
-                            <StackPanel
+                            <Border
+                                Padding="10,4"
                                 VerticalAlignment="Center"
-                                Orientation="Horizontal"
+                                Background="{StaticResource RunningSubtleBrush}"
+                                CornerRadius="10"
                                 Visibility="{Binding IsRunInProgress, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <ProgressBar
-                                    Width="84"
-                                    Height="8"
-                                    Margin="0,0,8,0"
-                                    VerticalAlignment="Center"
-                                    IsIndeterminate="True" />
-                                <TextBlock
-                                    VerticalAlignment="Center"
-                                    Foreground="{StaticResource SecondaryTextBrush}"
-                                    Text="Running" />
-                            </StackPanel>
+                                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                    <ProgressBar
+                                        Width="60"
+                                        Height="6"
+                                        Margin="0,0,8,0"
+                                        VerticalAlignment="Center"
+                                        IsIndeterminate="True" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource AccentBrush}"
+                                        Text="Running" />
+                                </StackPanel>
+                            </Border>
 
-                            <StackPanel
+                            <Border
+                                Padding="10,4"
                                 VerticalAlignment="Center"
-                                Orientation="Horizontal"
+                                Background="{StaticResource SuccessSubtleBrush}"
+                                CornerRadius="10"
                                 Visibility="{Binding IsLastRunPassed, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <Path
-                                    Margin="0,0,6,0"
-                                    VerticalAlignment="Center"
-                                    Data="M 1 5 L 4 8 L 10 2"
-                                    Stroke="#45C786"
-                                    StrokeEndLineCap="Round"
-                                    StrokeLineJoin="Round"
-                                    StrokeStartLineCap="Round"
-                                    StrokeThickness="2" />
-                                <TextBlock
-                                    VerticalAlignment="Center"
-                                    Foreground="#45C786"
-                                    Text="Passed" />
-                            </StackPanel>
+                                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                    <Path
+                                        Margin="0,0,6,0"
+                                        VerticalAlignment="Center"
+                                        Data="M 1 5 L 4 8 L 10 2"
+                                        Stroke="{StaticResource SuccessBrush}"
+                                        StrokeEndLineCap="Round"
+                                        StrokeLineJoin="Round"
+                                        StrokeStartLineCap="Round"
+                                        StrokeThickness="2" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource SuccessBrush}"
+                                        Text="Passed" />
+                                </StackPanel>
+                            </Border>
 
-                            <StackPanel
+                            <Border
+                                Padding="10,4"
                                 VerticalAlignment="Center"
-                                Orientation="Horizontal"
+                                Background="{StaticResource DangerSubtleBrush}"
+                                CornerRadius="10"
                                 Visibility="{Binding IsLastRunFailed, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <Path
-                                    Margin="0,0,6,0"
-                                    VerticalAlignment="Center"
-                                    Data="M 2 2 L 10 10 M 10 2 L 2 10"
-                                    Stroke="#F35B6B"
-                                    StrokeEndLineCap="Round"
-                                    StrokeStartLineCap="Round"
-                                    StrokeThickness="2" />
-                                <TextBlock
-                                    VerticalAlignment="Center"
-                                    Foreground="#F35B6B"
-                                    Text="Failed" />
-                            </StackPanel>
+                                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                    <Path
+                                        Margin="0,0,6,0"
+                                        VerticalAlignment="Center"
+                                        Data="M 2 2 L 10 10 M 10 2 L 2 10"
+                                        Stroke="{StaticResource DangerBrush}"
+                                        StrokeEndLineCap="Round"
+                                        StrokeStartLineCap="Round"
+                                        StrokeThickness="2" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource DangerBrush}"
+                                        Text="Failed" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Grid>
 
-                    <TextBox
+                    <RichTextBox
                         Grid.Row="1"
-                        AcceptsReturn="True"
-                        FontFamily="Consolas"
-                        HorizontalScrollBarVisibility="Disabled"
-                        IsReadOnly="True"
-                        Text="{Binding OutputLog}"
-                        TextWrapping="Wrap"
-                        VerticalScrollBarVisibility="Auto" />
+                        behaviors:OutputLogBehavior.Text="{Binding OutputLog}" />
                 </Grid>
             </Grid>
         </Border>
