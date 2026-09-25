@@ -1,10 +1,13 @@
 # Project Guidelines
 
 ## Code Style
-- Use C# naming conventions used in this repository:
-  - Public members and types: PascalCase
-  - Private fields: _PascalCase
-  - Constants: SNAKE_CASE
+- Use PascalCase for types and public members, camelCase for parameters and local variables, `_PascalCase` for private/internal fields, and UPPER_CASE for constants.
+- Prefix interfaces with `I`; do not use underscores in identifiers except for private/internal field prefixes and constants.
+- Use built-in C# types (`int`, `string`, `bool`, `double`) rather than BCL aliases.
+- Use Allman braces and separate methods or logical sections with one blank line.
+- Wrap disposable resources in `using` declarations or statements.
+- Declare local variables at the top of their scope and organize complex classes with `#region` sections.
+- Add XML summaries to public methods and verify identifier spelling.
 - Keep nullable reference types enabled and avoid suppressing warnings unless required.
 - Prefer concise, focused methods in ViewModels and Commands.
 
@@ -34,6 +37,19 @@
 - Keep command can-execute state in sync by raising NotifyCanExecuteChanged when relevant state changes.
 - Preserve UI-thread safety when updating bound properties from process output (Dispatcher usage).
 - When editing, ignore generated artifacts under obj/ and bin/ unless explicitly required.
+
+## Git And Commit Messages
+- Use Conventional Commits with one focused concern per commit. Valid types include `feat`, `fix`, `chore`, `refactor`, `docs`, `style`, `test`, `perf`, `ci`, `build`, `revert`, and `security`.
+- Write the subject in lowercase imperative mood, without a trailing period, and keep it under 50 characters. It must read naturally after: "If applied, this commit will ...".
+- Use an optional body only when needed to explain why or impact; wrap it at 72 characters.
+- When a JIRA ticket is known, use `type([JIRA-123], scope): subject`; do not invent ticket references.
+- Stage deliberately and inspect `git diff --staged` before committing. Keep formatting-only changes in a separate `style` commit.
+- Do not push, create pull requests, merge, or deploy unless explicitly requested.
+
+## Documentation
+- Keep README.md accurate when prerequisites, build/run commands, workflows, or project structure change.
+- Record delivered user-facing, framework, dependency, or performance changes in CHANGELOG.md.
+- Document behavior and rationale, not implementation trivia; keep Markdown concise and scannable.
 
 ## Environment Notes
 - This project is Windows-specific (WPF + net10.0-windows). Do not introduce cross-platform assumptions for UI execution.

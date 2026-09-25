@@ -51,3 +51,7 @@ When testing another solution or project, the available configuration list is re
 - `ViewModels/MainWindowViewModel.cs`: test discovery, process execution, status, and output handling
 - `Commands/`: synchronous and asynchronous command implementations
 - `DotNetTestRunner.csproj`: application project
+
+## Project History
+
+See [CHANGELOG.md](CHANGELOG.md) for completed project milestones.
