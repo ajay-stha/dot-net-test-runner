@@ -31,6 +31,10 @@ The application version is defined by the `<Version>` property in
 When that value changes on `main`, the **Release** workflow automatically
 publishes a self-contained Windows x64 package.
 
+Creating a semantic-version tag such as `v1.2.3` also runs the workflow. For a
+tagged release, the version from the tag is applied to the published application
+and artifact, even if the project file contains a different version.
+
 To create a downloadable package manually:
 
 1. Open the repository's **Actions** tab.

@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 - Added a project README with prerequisites, build commands, and test-runner usage.
 - Added GitHub Actions workflows for build validation and manual, self-contained Windows release artifacts.
 - Added semantic application versioning with automatic release publishing when the version changes on `main`.
+- Added tag-triggered releases that apply `v<semantic-version>` tags to published application metadata.
 
 ### Changed
 

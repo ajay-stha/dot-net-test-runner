@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - v*
     paths:
       - DotNetTestRunner.csproj
   workflow_dispatch:
@@ -43,16 +45,31 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          [xml] $currentProject = Get-Content DotNetTestRunner.csproj
-          $currentVersion = [string] $currentProject.Project.PropertyGroup.Version
+          $isTag = "${{ github.ref_type }}" -eq "tag"
 
-          if ([string]::IsNullOrWhiteSpace($currentVersion)) {
-              throw "DotNetTestRunner.csproj does not define a Version."
+          if ($isTag) {
+              $tag = "${{ github.ref_name }}"
+              $versionMatch = [regex]::Match($tag, "^v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$")
+
+              if (-not $versionMatch.Success) {
+                  throw "Tag '$tag' must use the format v<semantic-version>, for example v1.2.3."
+              }
+
+              $currentVersion = $versionMatch.Groups["version"].Value
+              $changed = $true
+          }
+          else {
+              [xml] $currentProject = Get-Content DotNetTestRunner.csproj
+              $currentVersion = [string] $currentProject.Project.PropertyGroup.Version
+
+              if ([string]::IsNullOrWhiteSpace($currentVersion)) {
+                  throw "DotNetTestRunner.csproj does not define a Version."
+              }
+
+              $changed = "${{ github.event_name }}" -eq "workflow_dispatch"
           }
 
-          $changed = "${{ github.event_name }}" -eq "workflow_dispatch"
-
-          if (-not $changed) {
+          if (-not $changed -and -not $isTag) {
               $previousRevision = "${{ github.event.before }}"
 
               if ($previousRevision -eq "0000000000000000000000000000000000000000") {
@@ -99,6 +116,7 @@ jobs:
           --runtime win-${{ env.ARCHITECTURE }}
           --self-contained true
           --output publish
+          -p:Version=${{ needs.version.outputs.number }}
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:PublishTrimmed=false
