@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Configurations>Debug;Release;MIQA;UAT</Configurations>
+    <AssemblyName>.NET Test Runner</AssemblyName>
+    <RootNamespace>DotNetTestRunner</RootNamespace>
+    <AssemblyTitle>.NET Test Runner</AssemblyTitle>
+    <Product>.NET Test Runner</Product>
+    <ApplicationIcon>test.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,10 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio workspace settings
+.vs/
+
+# User-specific files
+*.user
+*.suo
