@@ -1,4 +1,5 @@
 using DotNetTestRunner.Application.Abstractions;
+using DotNetTestRunner.Domain.Models;
 using Serilog;
 
 namespace DotNetTestRunner.Infrastructure.Logging;
@@ -75,7 +76,7 @@ public sealed class TestRunLogger : ITestRunLogger
     }
 
     /// <inheritdoc />
-    public void LogTestRunSummary(string header, int passedCount, int failedCount, IReadOnlyCollection<string> failedTestNames)
+    public void LogTestRunSummary(string header, int passedCount, int failedCount, IReadOnlyCollection<FailedTestDetail> failedTests)
     {
         if (failedCount == 0)
         {
@@ -88,10 +89,18 @@ public sealed class TestRunLogger : ITestRunLogger
         }
 
         _Logger.Warning(
-            "Test run summary for {Header}: {PassedCount} passed, {FailedCount} failed. Failed tests: {FailedTests}",
+            "Test run summary for {Header}: {PassedCount} passed, {FailedCount} failed.",
             header,
             passedCount,
-            failedCount,
-            failedTestNames);
+            failedCount);
+
+        foreach (var failedTest in failedTests)
+        {
+            _Logger.Error(
+                "Test failed. Run: {Header}, Test: {TestName}, Cause: {Cause}",
+                header,
+                failedTest.FullyQualifiedName,
+                failedTest.FailureReason ?? "(no failure details captured)");
+        }
     }
 }

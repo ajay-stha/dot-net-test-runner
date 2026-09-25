@@ -113,7 +113,8 @@ example:
 ```
 [2026-09-25 14:10:49.723] [INF] [User:jdoe] Application started.
 [2026-09-25 14:11:02.104] [INF] [User:jdoe] Test run started. Run: Running all tests, Target: C:\src\App.sln, Configuration: MIQA, Filter: (none)
-[2026-09-25 14:11:18.552] [WRN] [User:jdoe] Test run summary for Running all tests: 11 passed, 1 failed. Failed tests: ["MyApp.Tests.FooTests.Bar_ShouldReturnTrue"]
+[2026-09-25 14:11:18.552] [WRN] [User:jdoe] Test run summary for Running all tests: 11 passed, 1 failed.
+[2026-09-25 14:11:18.553] [ERR] [User:jdoe] Test failed. Run: Running all tests, Test: MyApp.Tests.FooTests.Bar_ShouldReturnTrue, Cause: Assert.That(1 + 1, Is.EqualTo(3)) Expected: 3 But was: 2
 ```
 
 What gets logged:
@@ -122,7 +123,10 @@ What gets logged:
 - Unhandled/crash conditions from the UI thread, background threads, and unobserved task
   exceptions, so an unexpected stop leaves a record of what caused it.
 - Each test run's start (target, configuration, filter), completion (exit code, duration),
-  and a pass/fail summary naming any failed tests.
+  and a pass/fail summary.
+- For each failed test, its own log entry naming the test and the failure cause (the "Error
+  Message:" text reported by the test framework), when it can be parsed from the `dotnet
+  test` console output.
 
 Log verbosity and rolling behavior are configured in `logsettings.json`, deployed next to the
 application executable:

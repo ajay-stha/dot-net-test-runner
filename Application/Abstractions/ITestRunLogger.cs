@@ -1,3 +1,5 @@
+using DotNetTestRunner.Domain.Models;
+
 namespace DotNetTestRunner.Application.Abstractions;
 
 /// <summary>
@@ -53,11 +55,12 @@ public interface ITestRunLogger
     void LogTestRunError(string header, string targetPath, string configuration, Exception exception);
 
     /// <summary>
-    /// Logs which individual tests succeeded and which failed for a completed run.
+    /// Logs which individual tests succeeded and which failed for a completed run, including
+    /// the failure cause reported by the test framework for each failed test when available.
     /// </summary>
     /// <param name="header">A short description of the run.</param>
     /// <param name="passedCount">The number of tests that passed.</param>
     /// <param name="failedCount">The number of tests that failed.</param>
-    /// <param name="failedTestNames">The fully qualified names of the tests that failed.</param>
-    void LogTestRunSummary(string header, int passedCount, int failedCount, IReadOnlyCollection<string> failedTestNames);
+    /// <param name="failedTests">The failed tests and their failure causes, when available.</param>
+    void LogTestRunSummary(string header, int passedCount, int failedCount, IReadOnlyCollection<FailedTestDetail> failedTests);
 }
