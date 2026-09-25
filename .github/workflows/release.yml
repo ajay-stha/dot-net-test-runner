@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - DotNetTestRunner.csproj
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Windows architecture to publish
+        required: true
+        default: x64
+        type: choice
+        options:
+          - x64
+          - x86
+          - arm64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Check application version
+    runs-on: windows-latest
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+      changed: ${{ steps.version.outputs.changed }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version
+        id: version
+        shell: pwsh
+        run: |
+          [xml] $currentProject = Get-Content DotNetTestRunner.csproj
+          $currentVersion = [string] $currentProject.Project.PropertyGroup.Version
+
+          if ([string]::IsNullOrWhiteSpace($currentVersion)) {
+              throw "DotNetTestRunner.csproj does not define a Version."
+          }
+
+          $changed = "${{ github.event_name }}" -eq "workflow_dispatch"
+
+          if (-not $changed) {
+              $previousRevision = "${{ github.event.before }}"
+
+              if ($previousRevision -eq "0000000000000000000000000000000000000000") {
+                  $changed = $true
+              }
+              else {
+                  $previousContent = git show "${previousRevision}:DotNetTestRunner.csproj"
+
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Unable to read DotNetTestRunner.csproj from revision $previousRevision."
+                  }
+
+                  $previousText = [string]::Join([Environment]::NewLine, $previousContent)
+                  $previousMatch = [regex]::Match($previousText, "<Version>([^<]+)</Version>")
+                  $previousVersion = $previousMatch.Groups[1].Value
+                  $changed = $currentVersion -ne $previousVersion
+              }
+          }
+
+          "number=$currentVersion" >> $env:GITHUB_OUTPUT
+          "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  publish:
+    name: Publish v${{ needs.version.outputs.number }}
+    needs: version
+    if: needs.version.outputs.changed == 'true'
+    runs-on: windows-latest
+    env:
+      ARCHITECTURE: ${{ inputs.architecture || 'x64' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish application
+        run: >
+          dotnet publish DotNetTestRunner.csproj
+          --configuration Release
+          --runtime win-${{ env.ARCHITECTURE }}
+          --self-contained true
+          --output publish
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:PublishTrimmed=false
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release
+          Compress-Archive -Path publish\* -DestinationPath release\DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}.zip
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}
+          path: release\DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}.zip
+          if-no-files-found: error
+          retention-days: 30

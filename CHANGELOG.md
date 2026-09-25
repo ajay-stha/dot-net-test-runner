@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Initialized the Git repository with generated build and editor artifacts ignored.
 - Renamed the application to `.NET Test Runner`, including the solution, project metadata, application title, and namespaces.
 - Added a project README with prerequisites, build commands, and test-runner usage.
+- Added GitHub Actions workflows for build validation and manual, self-contained Windows release artifacts.
+- Added semantic application versioning with automatic release publishing when the version changes on `main`.
 
 ### Changed
 

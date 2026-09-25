@@ -21,6 +21,28 @@ To create a release build:
 dotnet build DotNetTestRunner.sln -c Release
 ```
 
+## GitHub Actions
+
+The **Build** workflow restores and compiles the solution in the `Release`
+configuration for pushes to `main`, pull requests, and manual runs.
+
+The application version is defined by the `<Version>` property in
+`DotNetTestRunner.csproj`. Use semantic versions such as `1.0.0` or `1.1.0`.
+When that value changes on `main`, the **Release** workflow automatically
+publishes a self-contained Windows x64 package.
+
+To create a downloadable package manually:
+
+1. Open the repository's **Actions** tab.
+2. Select **Release**.
+3. Select **Run workflow** and choose the Windows architecture.
+4. When the workflow finishes, download the versioned
+   `DotNetTestRunner-v*-win-*` artifact from the workflow run.
+
+The release workflow publishes a self-contained Windows application and stores
+it as a ZIP artifact for 30 days. The target computer does not need a separate
+.NET installation.
+
 ## Use the Application
 
 1. Select a test solution or project with **Browse**.
