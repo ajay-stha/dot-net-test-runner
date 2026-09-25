@@ -2,7 +2,7 @@
     x:Class="DotNetTestRunner.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:vm="clr-namespace:DotNetTestRunner.ViewModels"
+    xmlns:vm="clr-namespace:DotNetTestRunner.Presentation.ViewModels"
     x:Name="RootWindow"
     Title=".NET Test Runner"
     Width="1180"

@@ -1,6 +1,6 @@
 using System.Windows.Input;
 
-namespace DotNetTestRunner.Commands;
+namespace DotNetTestRunner.Presentation.Commands;
 
 public sealed class RelayCommand : ICommand
 {

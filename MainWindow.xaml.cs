@@ -1,6 +1,7 @@
 ﻿using System.Windows;
 using System.Windows.Input;
-using DotNetTestRunner.ViewModels;
+using DotNetTestRunner.Infrastructure.Services;
+using DotNetTestRunner.Presentation.ViewModels;
 
 namespace DotNetTestRunner;
 
@@ -11,7 +12,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _MainWindowViewModel = new MainWindowViewModel();
+        _MainWindowViewModel = new MainWindowViewModel(new SettingsService());
         DataContext = _MainWindowViewModel;
     }
 
