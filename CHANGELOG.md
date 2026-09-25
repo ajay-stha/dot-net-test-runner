@@ -11,9 +11,10 @@ All notable changes to this project are documented in this file.
   activity (start, completion, and pass/fail summaries with failed test names and the
   Windows user account that ran them) are written to a rolling daily log file under
   `%APPDATA%\DotNetTestRunner\logs\`.
-- Added failure-cause logging: when a test fails, the reported "Error Message:" text from
-  the `dotnet test` console output is parsed and logged alongside the failed test name (see
-  `FailedTestDetail`), so the log records why a test failed, not just that it failed.
+- Added failed-test detail logging: when a test fails, the reported "Error Message:" and
+  "Stack Trace:" sections from the `dotnet test` console output are parsed and logged
+  alongside the failed test name (see `FailedTestDetail`), so the log records both the error
+  and the location where it occurred.
 - Added `logsettings.json` (deployed alongside the executable) to configure the minimum log
   level and rolling file behavior (rolling interval, retained file count, and file size
   limit) without recompiling. See `ILoggingSettingsProvider`/`LoggingSettingsProvider` and

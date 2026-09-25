@@ -585,30 +585,34 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Finds the failure cause captured for a failed method, matching by the raw test names
-    /// reported by <c>dotnet test</c>.
+    /// Finds the error and stack trace captured for a failed method, matching by the raw test
+    /// names reported by <c>dotnet test</c>.
     /// </summary>
-    private static string? FindFailureCause(TestMethodNode methodNode, IReadOnlyDictionary<string, string> failureCausesByReportedName)
+    private static (string? ErrorMessage, string? StackTrace) FindFailureDetails(
+        TestMethodNode methodNode,
+        IReadOnlyDictionary<string, (string? ErrorMessage, string? StackTrace)> failureDetailsByReportedName)
     {
-        foreach (var (reportedName, cause) in failureCausesByReportedName)
+        foreach (var (reportedName, details) in failureDetailsByReportedName)
         {
             if (DoesReportedTestNameMatch(reportedName, methodNode))
             {
-                return cause;
+                return details;
             }
         }
 
-        return null;
+        return (null, null);
     }
 
     /// <summary>
     /// Scans <c>dotnet test</c> console output for "Failed &lt;test&gt;" blocks and extracts
-    /// the "Error Message:" text reported for each, keyed by the raw reported test name.
+    /// their error message and stack trace sections, keyed by the raw reported test name.
     /// </summary>
-    private static Dictionary<string, string> ParseFailureCauses(IEnumerable<string> outputLines)
+    private static Dictionary<string, (string? ErrorMessage, string? StackTrace)> ParseFailureDetails(
+        IEnumerable<string> outputLines)
     {
         var lines = outputLines as IReadOnlyList<string> ?? outputLines.ToList();
-        var causesByReportedName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var detailsByReportedName =
+            new Dictionary<string, (string? ErrorMessage, string? StackTrace)>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < lines.Count; i++)
         {
@@ -634,60 +638,81 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
                 continue;
             }
 
-            var cause = ExtractFailureCause(lines, i + 1);
+            var details = ExtractFailureDetails(lines, i + 1);
 
-            if (!string.IsNullOrWhiteSpace(cause))
+            if (details.ErrorMessage is not null || details.StackTrace is not null)
             {
-                causesByReportedName[rest] = cause;
+                detailsByReportedName[rest] = details;
             }
         }
 
-        return causesByReportedName;
+        return detailsByReportedName;
     }
 
     /// <summary>
-    /// Reads the "Error Message:" section following a "Failed " line, stopping at the "Stack
-    /// Trace:" section, a blank line, or the start of the next test's output.
+    /// Reads the error and stack trace sections following a "Failed " line, stopping at the
+    /// start of the next test's output.
     /// </summary>
-    private static string? ExtractFailureCause(IReadOnlyList<string> lines, int startIndex)
+    private static (string? ErrorMessage, string? StackTrace) ExtractFailureDetails(
+        IReadOnlyList<string> lines,
+        int startIndex)
     {
-        var messageLines = new List<string>();
-        var inErrorMessage = false;
+        var errorMessageLines = new List<string>();
+        var stackTraceLines = new List<string>();
+        var section = FailureOutputSection.None;
 
         for (var i = startIndex; i < lines.Count; i++)
         {
             var trimmed = lines[i].Trim();
 
-            if (trimmed.StartsWith("Failed ", StringComparison.Ordinal) || trimmed.StartsWith("Passed ", StringComparison.Ordinal))
+            if (trimmed.StartsWith("Failed ", StringComparison.Ordinal) ||
+                trimmed.StartsWith("Passed ", StringComparison.Ordinal))
             {
                 break;
             }
 
             if (string.Equals(trimmed, "Error Message:", StringComparison.OrdinalIgnoreCase))
             {
-                inErrorMessage = true;
+                section = FailureOutputSection.ErrorMessage;
                 continue;
             }
 
             if (string.Equals(trimmed, "Stack Trace:", StringComparison.OrdinalIgnoreCase))
             {
-                break;
-            }
-
-            if (!inErrorMessage)
-            {
+                section = FailureOutputSection.StackTrace;
                 continue;
             }
 
             if (trimmed.Length == 0)
             {
-                break;
+                if (section == FailureOutputSection.StackTrace)
+                {
+                    break;
+                }
+
+                continue;
             }
 
-            messageLines.Add(trimmed);
+            if (section == FailureOutputSection.ErrorMessage)
+            {
+                errorMessageLines.Add(trimmed);
+            }
+            else if (section == FailureOutputSection.StackTrace)
+            {
+                stackTraceLines.Add(trimmed);
+            }
         }
 
-        return messageLines.Count > 0 ? string.Join(" ", messageLines) : null;
+        return (
+            errorMessageLines.Count > 0 ? string.Join(" ", errorMessageLines) : null,
+            stackTraceLines.Count > 0 ? string.Join(Environment.NewLine, stackTraceLines) : null);
+    }
+
+    private enum FailureOutputSection
+    {
+        None,
+        ErrorMessage,
+        StackTrace,
     }
 
     private List<TestMethodNode> GetSelectedMethods()
@@ -788,17 +813,25 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Logs the pass/fail counts for a completed run and, for each failed test, the failure
-    /// cause extracted from the captured <c>dotnet test</c> output when available.
+    /// Logs the pass/fail counts for a completed run and, for each failed test, the error
+    /// message and stack trace extracted from the captured <c>dotnet test</c> output when
+    /// available.
     /// </summary>
     private void LogRunSummary(string header, IReadOnlyCollection<TestMethodNode> methods, IReadOnlyCollection<string>? capturedLines = null)
     {
         var passedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Passed);
         var failedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Failed);
-        var failureCauses = capturedLines is not null ? ParseFailureCauses(capturedLines) : [];
+        var failureDetails = capturedLines is not null ? ParseFailureDetails(capturedLines) : [];
         var failedTests = methods
             .Where(static methodNode => methodNode.RunState == TestRunState.Failed)
-            .Select(methodNode => new FailedTestDetail(methodNode.FullyQualifiedName, FindFailureCause(methodNode, failureCauses)))
+            .Select(methodNode =>
+            {
+                var details = FindFailureDetails(methodNode, failureDetails);
+                return new FailedTestDetail(
+                    methodNode.FullyQualifiedName,
+                    details.ErrorMessage,
+                    details.StackTrace);
+            })
             .ToList();
 
         _TestRunLogger.LogTestRunSummary(header, passedCount, failedCount, failedTests);

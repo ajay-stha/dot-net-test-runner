@@ -97,10 +97,11 @@ public sealed class TestRunLogger : ITestRunLogger
         foreach (var failedTest in failedTests)
         {
             _Logger.Error(
-                "Test failed. Run: {Header}, Test: {TestName}, Cause: {Cause}",
+                "Test failed. Run: {Header}, Test: {TestName}, Error: {ErrorMessage}, StackTrace: {StackTrace}",
                 header,
                 failedTest.FullyQualifiedName,
-                failedTest.FailureReason ?? "(no failure details captured)");
+                failedTest.ErrorMessage ?? "(no error message captured)",
+                failedTest.StackTrace ?? "(no stack trace captured)");
         }
     }
 }
