@@ -74,6 +74,39 @@ When adding a new generic control style or brush:
 3. Do not duplicate brush/style declarations across windows — if two views need the same
    look, that is a signal it belongs in `Styles.xaml`.
 
+## Header / Title Bar Convention
+
+This app uses a **custom, borderless title bar** matching the companion **DotNetPublisher**
+application's chrome design, rather than the standard Windows title bar. The relevant pieces:
+
+- [MainWindow.xaml](MainWindow.xaml): the `Window` sets `WindowStyle="None"` and declares a
+  `WindowChrome.WindowChrome` (`CaptionHeight="52"`, no glass frame, no rounded corners from
+  `WindowChrome` itself — rounding is done natively, see below). The root content is a
+  two-row `Grid`: row 0 is the header `Border`, row 1 is the original content area.
+- The header `Border` contains, left to right: the app icon (`Image` bound to `test.ico`, also
+  added as an MSBuild `<Resource>` in [DotNetTestRunner.csproj](DotNetTestRunner.csproj) so it
+  can be loaded as an `Image.Source`), a vertical accent bar, a title/subtitle `StackPanel`,
+  a spacer, and three caption buttons (minimize/maximize-restore/close) styled with the
+  `CaptionButton`/`CloseCaptionButton` styles and Segoe MDL2 Assets glyphs. Caption buttons use
+  `WindowChrome.IsHitTestVisibleInChrome="True"` so they stay clickable within the chrome's
+  caption region.
+- [MainWindow.xaml.cs](MainWindow.xaml.cs) provides the click handlers
+  (`MinimizeButton_Click`, `MaximizeRestoreButton_Click`, `CloseButton_Click`), a
+  `StateChanged` handler that swaps the maximize/restore glyph and tooltip, an
+  `OnSourceInitialized` override that requests native rounded corners via
+  `DwmSetWindowAttribute` (ignored gracefully on unsupported Windows versions), and a
+  `WM_GETMINMAXINFO` window hook (`WindowHook`) that constrains the maximized size to the
+  current monitor's work area so the window never covers the taskbar — this matters here
+  because the app defaults to `WindowState="Maximized"`.
+- Header-specific brushes/styles (`HeaderBarBrush`, `AccentBarBrush`, `TextBrightBrush`,
+  `CloseHoverBrush`, `WhiteBrush`, `AppTitleText`, `AppSubtitleText`, `CaptionButton`,
+  `CloseCaptionButton`) live in [`Styles/Styles.xaml`](Styles/Styles.xaml) alongside the rest
+  of the shared styles, per the [Styles Convention](#styles-convention) above. They reuse this
+  app's existing dark-blue palette rather than importing DotNetPublisher's distinct color set.
+
+When porting further chrome-related UI from DotNetPublisher, keep this same split: XAML
+structure/styles here, window-message/P-Invoke logic in `MainWindow.xaml.cs`.
+
 ## Tech Stack
 
 - **Language:** C# with `Nullable` and `ImplicitUsings` enabled.

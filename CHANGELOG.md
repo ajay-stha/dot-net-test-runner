@@ -15,6 +15,10 @@ All notable changes to this project are documented in this file.
   `Domain/Models`).
 - Added [AGENTS.md](AGENTS.md) documenting the repository's folder structure and the shared
   styles convention.
+- Added a custom borderless title bar/header matching the companion DotNetPublisher
+  application's design: app icon, accent bar, title/subtitle, and minimize/maximize/close
+  caption buttons, with native rounded corners and monitor-aware maximize sizing so the
+  maximized window never covers the taskbar.
 
 ### Changed
 

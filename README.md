@@ -1,6 +1,6 @@
 # .NET Test Runner
 
-A Windows desktop application for discovering and running tests from a selected .NET solution (`.sln`) or project (`.csproj`). It provides a visual test tree, per-test status, configuration selection, live `dotnet test` output, and commands to run all, selected, class, or method-level tests.
+A Windows desktop application for discovering and running tests from a selected .NET solution (`.sln`) or project (`.csproj`). It provides a visual test tree, per-test status, configuration selection, live `dotnet test` output, and commands to run all, selected, class, or method-level tests. It uses a custom borderless title bar matching the companion DotNetPublisher application's design.
 
 ## Requirements
 
@@ -95,7 +95,7 @@ target path or selected configuration changes — no manual save action is requi
 This project follows a layered architecture. See [AGENTS.md](AGENTS.md) for the full
 folder-structure and styling convention reference.
 
-- `MainWindow.xaml` / `.cs`: WPF main window (UI layout and minimal code-behind).
+- `MainWindow.xaml` / `.cs`: WPF main window (custom title bar/header, UI layout, minimal code-behind).
 - `Application/Abstractions/`: service interfaces (`ISettingsService`).
 - `Domain/Models/`: serializable value models (`TestRunnerSettings`).
 - `Infrastructure/Services/`: concrete service implementations (`SettingsService`).
@@ -103,6 +103,15 @@ folder-structure and styling convention reference.
 - `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
 - `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.
 - `DotNetTestRunner.csproj`: application project.
+
+## Header / Title Bar
+
+The application replaces the standard Windows title bar with a custom header (app icon,
+accent bar, title/subtitle, and minimize/maximize/close buttons), matching the companion
+DotNetPublisher application's design. The window remains fully resizable and drag-movable via
+the header, native rounded corners are applied where supported, and maximizing never covers
+the taskbar. See the [Header / Title Bar Convention](AGENTS.md#header--title-bar-convention)
+section of [AGENTS.md](AGENTS.md) for implementation details.
 
 ## Project History
 
