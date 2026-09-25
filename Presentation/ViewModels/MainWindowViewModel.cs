@@ -10,13 +10,15 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using System.Xml.Linq;
-using DotNetTestRunner.Commands;
+using DotNetTestRunner.Application.Abstractions;
+using DotNetTestRunner.Domain.Models;
+using DotNetTestRunner.Presentation.Commands;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Win32;
 
-namespace DotNetTestRunner.ViewModels;
+namespace DotNetTestRunner.Presentation.ViewModels;
 
 public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 {
@@ -33,6 +35,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         "UAT"
     ];
 
+    private readonly ISettingsService _SettingsService;
     private string _TargetPath = string.Empty;
     private string _SelectedConfiguration = "MIQA";
     private string _StatusText = "Choose target .sln or .csproj";
@@ -44,10 +47,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     private readonly StringBuilder _OutputBuilder = new();
     private readonly ConcurrentQueue<string> _PendingOutputLines = new();
     private int _IsOutputFlushScheduled;
+    private bool _IsRestoringSettings;
+    private string? _PendingRestoredConfiguration;
 
-    public MainWindowViewModel()
+    public MainWindowViewModel(ISettingsService settingsService)
     {
-        _UiDispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        _SettingsService = settingsService;
+        _UiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         BrowseTargetCommand = new RelayCommand(BrowseTarget);
         RefreshTestsCommand = new AsyncRelayCommand(LoadTestsAsync, CanExecuteTestCommands);
         RunAllCommand = new AsyncRelayCommand(RunAllTestsAsync, CanExecuteTestCommands);
@@ -62,11 +68,23 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             Configurations.Add(configuration);
         }
 
-        var initialTarget = ResolveInitialTargetPath();
+        var persistedSettings = _SettingsService.Load();
+        var initialTarget = ResolveInitialTargetPath(persistedSettings.TargetPath);
 
         if (!string.IsNullOrWhiteSpace(initialTarget))
         {
-            SetTargetPath(initialTarget);
+            _IsRestoringSettings = true;
+            _PendingRestoredConfiguration = persistedSettings.SelectedConfiguration;
+
+            try
+            {
+                SetTargetPath(initialTarget);
+            }
+            finally
+            {
+                _IsRestoringSettings = false;
+                _PendingRestoredConfiguration = null;
+            }
         }
     }
 
@@ -100,6 +118,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             if (SetProperty(ref _TargetPath, value))
             {
                 NotifyCommandStateChanged();
+
+                if (!_IsRestoringSettings)
+                {
+                    SavePersistedSettings();
+                }
             }
         }
     }
@@ -107,7 +130,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     public string SelectedConfiguration
     {
         get => _SelectedConfiguration;
-        set => SetProperty(ref _SelectedConfiguration, value);
+        set
+        {
+            if (SetProperty(ref _SelectedConfiguration, value) && !_IsRestoringSettings)
+            {
+                SavePersistedSettings();
+            }
+        }
     }
 
     public string StatusText
@@ -672,16 +701,33 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             Configurations.Add(configuration);
         }
 
+        var restoredConfiguration = _PendingRestoredConfiguration is { Length: > 0 }
+            ? Configurations.FirstOrDefault(configuration => string.Equals(configuration, _PendingRestoredConfiguration, StringComparison.OrdinalIgnoreCase))
+            : null;
+
         var preferredConfiguration = Configurations
             .FirstOrDefault(static configuration => string.Equals(configuration, "MIQA", StringComparison.OrdinalIgnoreCase));
 
-        SelectedConfiguration = preferredConfiguration ?? Configurations[0];
+        SelectedConfiguration = restoredConfiguration ?? preferredConfiguration ?? Configurations[0];
 
         TestClasses.Clear();
 
         AppendOutput($"Using test target: {targetPath}");
         StatusText = "Target selected. Discovering tests...";
         _ = LoadTestsAfterTargetSelectionAsync();
+    }
+
+    /// <summary>
+    /// Persists the current target path and selected configuration so they can be
+    /// restored the next time the application starts.
+    /// </summary>
+    private void SavePersistedSettings()
+    {
+        _SettingsService.Save(new TestRunnerSettings
+        {
+            TargetPath = TargetPath,
+            SelectedConfiguration = SelectedConfiguration
+        });
     }
 
     private async Task LoadTestsAfterTargetSelectionAsync()
@@ -1109,8 +1155,17 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    private static string? ResolveInitialTargetPath()
+    /// <summary>
+    /// Resolves the target path to select at startup, preferring a previously persisted
+    /// path (if it still exists on disk) over the default auto-discovery walk-up.
+    /// </summary>
+    private static string? ResolveInitialTargetPath(string? persistedTargetPath)
     {
+        if (!string.IsNullOrWhiteSpace(persistedTargetPath) && File.Exists(persistedTargetPath))
+        {
+            return persistedTargetPath;
+        }
+
         var currentDirectory = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (currentDirectory is not null)

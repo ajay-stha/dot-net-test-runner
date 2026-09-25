@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Added persisted settings: the last selected target path and build configuration are now
+  saved to `%APPDATA%\DotNetTestRunner\settings.json` and restored automatically on startup,
+  falling back to the existing directory walk-up discovery when no valid persisted path
+  exists.
+- Added `ISettingsService`/`SettingsService` following the layered architecture used by the
+  companion DotNetPublisher application (`Application/Abstractions`, `Infrastructure/Services`,
+  `Domain/Models`).
+- Added [AGENTS.md](AGENTS.md) documenting the repository's folder structure and the shared
+  styles convention.
+- Added a custom borderless title bar/header matching the companion DotNetPublisher
+  application's design: app icon, accent bar, title/subtitle, and minimize/maximize/close
+  caption buttons, with native rounded corners and monitor-aware maximize sizing so the
+  maximized window never covers the taskbar.
+
+### Changed
+
+- Restructured the project into a layered folder structure matching DotNetPublisher:
+  `ViewModels/` and `Commands/` moved under `Presentation/`; new `Application/Abstractions/`,
+  `Infrastructure/Services/`, and `Domain/Models/` folders were added.
+- Extracted all shared brushes, converters, and generic control styles from
+  `MainWindow.xaml` into a common `Styles/Styles.xaml` resource dictionary, merged once at
+  the `Application` level. View-specific data templates remain in `MainWindow.xaml`.
+
 ## 2026-09-25
 
 ### Added
