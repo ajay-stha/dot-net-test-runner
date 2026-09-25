@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
   application's design: app icon, accent bar, title/subtitle, and minimize/maximize/close
   caption buttons, with native rounded corners and monitor-aware maximize sizing so the
   maximized window never covers the taskbar.
+- Added GitHub Release creation for version changes and semantic-version tags, with the
+  published Windows ZIP attached as a release asset.
 
 ### Changed
 
