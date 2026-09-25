@@ -15,30 +15,30 @@ public sealed class TestRunLogger : ITestRunLogger
     /// <inheritdoc />
     public void LogApplicationStarted()
     {
-        _Logger.Information("Application started.");
+        _Logger.Information("APP START");
     }
 
     /// <inheritdoc />
     public void LogApplicationStopped(string reason)
     {
-        _Logger.Information("Application stopped. Reason: {Reason}", reason);
+        _Logger.Information("APP STOP | Reason={Reason}", FormatValue(reason));
     }
 
     /// <inheritdoc />
     public void LogApplicationCrashed(Exception exception, string source)
     {
-        _Logger.Fatal(exception, "Application stopped unexpectedly. Source: {Source}", source);
+        _Logger.Fatal(exception, "APP CRASH | Source={Source}", FormatValue(source));
     }
 
     /// <inheritdoc />
     public void LogTestRunStarted(string header, string targetPath, string configuration, string? filter)
     {
         _Logger.Information(
-            "Test run started. Run: {Header}, Target: {TargetPath}, Configuration: {Configuration}, Filter: {Filter}",
-            header,
-            targetPath,
-            configuration,
-            filter ?? "(none)");
+            "RUN START | Run={Run} | Target={Target} | Config={Config} | Filter={Filter}",
+            FormatValue(header),
+            FormatValue(targetPath),
+            FormatValue(configuration),
+            FormatValue(filter ?? "(none)"));
     }
 
     /// <inheritdoc />
@@ -47,19 +47,19 @@ public sealed class TestRunLogger : ITestRunLogger
         if (exitCode == 0)
         {
             _Logger.Information(
-                "Test run succeeded. Run: {Header}, Target: {TargetPath}, Configuration: {Configuration}, DurationMs: {DurationMs}",
-                header,
-                targetPath,
-                configuration,
+                "RUN END | Status=PASSED | Run={Run} | Target={Target} | Config={Config} | DurationMs={DurationMs:0.##}",
+                FormatValue(header),
+                FormatValue(targetPath),
+                FormatValue(configuration),
                 duration.TotalMilliseconds);
             return;
         }
 
         _Logger.Warning(
-            "Test run failed. Run: {Header}, Target: {TargetPath}, Configuration: {Configuration}, ExitCode: {ExitCode}, DurationMs: {DurationMs}",
-            header,
-            targetPath,
-            configuration,
+            "RUN END | Status=FAILED | Run={Run} | Target={Target} | Config={Config} | ExitCode={ExitCode} | DurationMs={DurationMs:0.##}",
+            FormatValue(header),
+            FormatValue(targetPath),
+            FormatValue(configuration),
             exitCode,
             duration.TotalMilliseconds);
     }
@@ -69,10 +69,10 @@ public sealed class TestRunLogger : ITestRunLogger
     {
         _Logger.Error(
             exception,
-            "Test run failed unexpectedly. Run: {Header}, Target: {TargetPath}, Configuration: {Configuration}",
-            header,
-            targetPath,
-            configuration);
+            "RUN ERROR | Run={Run} | Target={Target} | Config={Config}",
+            FormatValue(header),
+            FormatValue(targetPath),
+            FormatValue(configuration));
     }
 
     /// <inheritdoc />
@@ -81,27 +81,36 @@ public sealed class TestRunLogger : ITestRunLogger
         if (failedCount == 0)
         {
             _Logger.Information(
-                "Test run summary for {Header}: {PassedCount} passed, {FailedCount} failed.",
-                header,
+                "RUN SUMMARY | Run={Run} | Passed={Passed} | Failed={Failed}",
+                FormatValue(header),
                 passedCount,
                 failedCount);
             return;
         }
 
         _Logger.Warning(
-            "Test run summary for {Header}: {PassedCount} passed, {FailedCount} failed.",
-            header,
+            "RUN SUMMARY | Run={Run} | Passed={Passed} | Failed={Failed}",
+            FormatValue(header),
             passedCount,
             failedCount);
 
         foreach (var failedTest in failedTests)
         {
             _Logger.Error(
-                "Test failed. Run: {Header}, Test: {TestName}, Error: {ErrorMessage}, StackTrace: {StackTrace}",
-                header,
-                failedTest.FullyQualifiedName,
-                failedTest.ErrorMessage ?? "(no error message captured)",
-                failedTest.StackTrace ?? "(no stack trace captured)");
+                "TEST FAILED | Run={Run} | Test={Test} | Error={Error} | StackTrace={StackTrace}",
+                FormatValue(header),
+                FormatValue(failedTest.FullyQualifiedName),
+                FormatValue(failedTest.ErrorMessage ?? "(no error message captured)"),
+                FormatValue(failedTest.StackTrace ?? "(no stack trace captured)"));
         }
+    }
+
+    private static string FormatValue(string value)
+    {
+        return value
+            .Replace("\r\n", " | ", StringComparison.Ordinal)
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Trim();
     }
 }

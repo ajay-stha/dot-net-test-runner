@@ -24,6 +24,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Improved log readability with stable single-line event formats (`RUN START`, `RUN END`,
+  `RUN SUMMARY`, and `TEST FAILED`), normalized embedded error and stack-trace line breaks,
+  and concise duration values.
 - Refreshed the main window's visual design: a refined dark color palette, elevated cards
   with soft shadows, a clearer button hierarchy (a filled primary "Run All", an
   accent-outlined "Run Selected", and ghost-style secondary actions), icon-labeled buttons
