@@ -9,11 +9,100 @@
     Height="720"
     MinWidth="980"
     MinHeight="620"
-    Background="#0F1115"
+    Background="{StaticResource BackgroundBrush}"
     FontSize="{Binding UiFontSize}"
+    Icon="test.ico"
     PreviewMouseWheel="Window_PreviewMouseWheel"
-    WindowState="Maximized">
-    <Grid Margin="12">
+    ResizeMode="CanResize"
+    WindowState="Maximized"
+    WindowStyle="None">
+    <WindowChrome.WindowChrome>
+        <WindowChrome
+            CaptionHeight="52"
+            CornerRadius="0"
+            GlassFrameThickness="0"
+            NonClientFrameEdges="None"
+            ResizeBorderThickness="6"
+            UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  App Header Bar (custom title bar) — same design as .NET Publisher.  -->
+        <Border
+            Grid.Row="0"
+            Background="{StaticResource HeaderBarBrush}"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!--  App icon  -->
+                <Image
+                    Grid.Column="0"
+                    Width="20"
+                    Height="20"
+                    Margin="16,0,0,0"
+                    VerticalAlignment="Center"
+                    RenderOptions.BitmapScalingMode="HighQuality"
+                    Source="test.ico" />
+
+                <!--  Accent bar  -->
+                <Border
+                    Grid.Column="1"
+                    Width="4"
+                    Height="34"
+                    Margin="14,0,14,0"
+                    VerticalAlignment="Center"
+                    Background="{StaticResource AccentBarBrush}"
+                    CornerRadius="2" />
+
+                <StackPanel
+                    Grid.Column="2"
+                    Margin="0,9"
+                    VerticalAlignment="Center">
+                    <TextBlock Style="{StaticResource AppTitleText}" Text=".NET Test Runner" />
+                    <TextBlock
+                        Margin="0,1,0,0"
+                        Style="{StaticResource AppSubtitleText}"
+                        Text="Discover and run dotnet tests from a solution or project" />
+                </StackPanel>
+
+                <!--  Caption buttons  -->
+                <StackPanel
+                    Grid.Column="4"
+                    VerticalAlignment="Top"
+                    Orientation="Horizontal">
+                    <Button
+                        Click="MinimizeButton_Click"
+                        Content="&#xE921;"
+                        Style="{StaticResource CaptionButton}"
+                        ToolTip="Minimize" />
+                    <Button
+                        x:Name="MaximizeRestoreButton"
+                        Click="MaximizeRestoreButton_Click"
+                        Content="&#xE922;"
+                        Style="{StaticResource CaptionButton}"
+                        ToolTip="Maximize" />
+                    <Button
+                        Click="CloseButton_Click"
+                        Content="&#xE8BB;"
+                        Style="{StaticResource CloseCaptionButton}"
+                        ToolTip="Close" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="12">
         <Grid.Resources>
             <!--
                 Shared brushes, converters, and generic control styles live in
@@ -530,5 +619,6 @@
                 </Grid>
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Window>

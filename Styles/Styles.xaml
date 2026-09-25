@@ -26,6 +26,24 @@
     <SolidColorBrush x:Key="MenuBackgroundBrush" Color="#1A202B" />
     <SolidColorBrush x:Key="MenuHoverBrush" Color="#2A364A" />
 
+    <!--
+        Custom title bar (app header) palette. This mirrors the DotNetPublisher header
+        design: a gradient header bar, a vertical accent bar next to the title, a bright
+        title/muted subtitle pairing, and transparent caption buttons that highlight on
+        hover (with a distinct red hover for Close).
+    -->
+    <LinearGradientBrush x:Key="HeaderBarBrush" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="#171A21" />
+        <GradientStop Offset="1" Color="#11151D" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="AccentBarBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#3B82F6" />
+        <GradientStop Offset="1" Color="#2F6FD6" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="TextBrightBrush" Color="#F4F8FF" />
+    <SolidColorBrush x:Key="CloseHoverBrush" Color="#E81123" />
+    <SolidColorBrush x:Key="WhiteBrush" Color="#FFFFFF" />
+
     <Style TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
     </Style>
@@ -354,6 +372,67 @@
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource ItemSelectedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--  Custom title bar (app header) text and caption button styles.  -->
+    <Style x:Key="AppTitleText" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextBrightBrush}" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="AppSubtitleText" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="CaptionButton" TargetType="Button">
+        <Setter Property="Width" Value="46" />
+        <Setter Property="Height" Value="34" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ItemHoverBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource TextBrightBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style
+        x:Key="CloseCaptionButton"
+        BasedOn="{StaticResource CaptionButton}"
+        TargetType="Button">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource CloseHoverBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource WhiteBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
