@@ -60,6 +60,9 @@ it as a ZIP artifact for 30 days. The target computer does not need a separate
 
 The runner executes standard `dotnet test` commands with the selected configuration. Selected tests use `FullyQualifiedName` filters, so their test adapters must support the standard VSTest filter syntax.
 
+The last selected target path and build configuration are persisted automatically (see
+[Persisted Settings](#persisted-settings)) and restored the next time the application starts.
+
 ## Supported Configurations
 
 The application project defines these configurations:
@@ -71,12 +74,35 @@ The application project defines these configurations:
 
 When testing another solution or project, the available configuration list is read from that target.
 
+## Persisted Settings
+
+The application remembers the last selected target path and build configuration between
+sessions. Settings are stored as JSON at:
+
+```
+%APPDATA%\DotNetTestRunner\settings.json
+```
+
+On startup, the application restores the persisted target path if the file still exists on
+disk; otherwise it falls back to searching parent directories of the executable for
+`CSM.UI.Tests.sln`/`CSM.UI.Tests.csproj`. Settings are saved automatically whenever the
+target path or selected configuration changes — no manual save action is required. See
+[`ISettingsService`](Application/Abstractions/ISettingsService.cs) and its implementation,
+[`SettingsService`](Infrastructure/Services/SettingsService.cs), for details.
+
 ## Project Layout
 
-- `MainWindow.xaml`: WPF user interface
-- `ViewModels/MainWindowViewModel.cs`: test discovery, process execution, status, and output handling
-- `Commands/`: synchronous and asynchronous command implementations
-- `DotNetTestRunner.csproj`: application project
+This project follows a layered architecture. See [AGENTS.md](AGENTS.md) for the full
+folder-structure and styling convention reference.
+
+- `MainWindow.xaml` / `.cs`: WPF main window (UI layout and minimal code-behind).
+- `Application/Abstractions/`: service interfaces (`ISettingsService`).
+- `Domain/Models/`: serializable value models (`TestRunnerSettings`).
+- `Infrastructure/Services/`: concrete service implementations (`SettingsService`).
+- `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel`).
+- `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
+- `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.
+- `DotNetTestRunner.csproj`: application project.
 
 ## Project History
 
