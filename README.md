@@ -5,7 +5,7 @@ A Windows desktop application for discovering and running tests from a selected 
 ## Requirements
 
 - Windows
-- .NET 8 SDK or later
+- .NET 10 SDK or later
 - A test target supported by `dotnet test`
 
 ## Run Locally

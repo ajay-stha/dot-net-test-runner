@@ -18,11 +18,12 @@ using Microsoft.Win32;
 
 namespace DotNetTestRunner.ViewModels;
 
-public sealed class MainWindowViewModel : INotifyPropertyChanged
+public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 {
-    private static readonly Regex _TestNameRegex = new(
+    [GeneratedRegex(
         "^[A-Za-z_][A-Za-z0-9_+.()]*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        RegexOptions.CultureInvariant)]
+    private static partial Regex TestNameRegex();
 
     private static readonly string[] _DefaultConfigurations =
     [
@@ -792,7 +793,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return false;
         }
 
-        return _TestNameRegex.IsMatch(line);
+        return TestNameRegex().IsMatch(line);
     }
 
     private void RebuildTestTree(IEnumerable<TestDiscoveryEntry> testNames)

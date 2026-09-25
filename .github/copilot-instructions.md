@@ -9,7 +9,7 @@
 - Prefer concise, focused methods in ViewModels and Commands.
 
 ## Architecture
-- This is a WPF MVVM desktop app targeting net8.0-windows.
+- This is a WPF MVVM desktop app targeting net10.0-windows.
 - Keep responsibilities separated:
   - Views (.xaml): layout and bindings only.
   - Code-behind (.xaml.cs): minimal UI wiring only (for example selection forwarding).
@@ -36,5 +36,5 @@
 - When editing, ignore generated artifacts under obj/ and bin/ unless explicitly required.
 
 ## Environment Notes
-- This project is Windows-specific (WPF + net8.0-windows). Do not introduce cross-platform assumptions for UI execution.
+- This project is Windows-specific (WPF + net10.0-windows). Do not introduce cross-platform assumptions for UI execution.
 - Test discovery and execution shell out to dotnet using the selected .sln or .csproj target path.
