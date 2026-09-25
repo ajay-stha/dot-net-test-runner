@@ -6,8 +6,6 @@ on:
       - main
     tags:
       - v*
-    paths:
-      - DotNetTestRunner.csproj
   workflow_dispatch:
     inputs:
       architecture:
@@ -128,7 +126,7 @@ jobs:
           Compress-Archive -Path publish\* -DestinationPath release\DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}.zip
 
       - name: Upload release archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}
           path: release\DotNetTestRunner-v${{ needs.version.outputs.number }}-win-${{ env.ARCHITECTURE }}.zip
