@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [1.0.1] - 2026-09-25
+
 ### Added
 
 - Added persisted settings: the last selected target path and build configuration are now
@@ -21,6 +23,7 @@ All notable changes to this project are documented in this file.
   maximized window never covers the taskbar.
 - Added GitHub Release creation for version changes and semantic-version tags, with the
   published Windows ZIP attached as a release asset.
+- Added release descriptions sourced from the matching version section in this changelog.
 
 ### Changed
 
@@ -31,7 +34,7 @@ All notable changes to this project are documented in this file.
   `MainWindow.xaml` into a common `Styles/Styles.xaml` resource dictionary, merged once at
   the `Application` level. View-specific data templates remain in `MainWindow.xaml`.
 
-## 2026-09-25
+## [1.0.0] - 2026-09-25
 
 ### Added
 

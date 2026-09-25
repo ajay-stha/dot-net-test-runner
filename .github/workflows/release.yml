@@ -135,6 +135,31 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Prepare release notes
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $version = [regex]::Escape("${{ needs.version.outputs.number }}")
+          $changelog = [System.IO.File]::ReadAllText("CHANGELOG.md")
+          $pattern = "(?ms)^## \[$version\](?: - [^\r\n]+)?\r?\n(?<notes>.*?)(?=^## |\z)"
+          $match = [regex]::Match($changelog, $pattern)
+
+          if (-not $match.Success) {
+              throw "CHANGELOG.md does not contain a '## [${{ needs.version.outputs.number }}]' section."
+          }
+
+          $notes = $match.Groups["notes"].Value.Trim()
+
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+              throw "The changelog section for version ${{ needs.version.outputs.number }} is empty."
+          }
+
+          [System.IO.File]::WriteAllText(
+              "release\release-notes.md",
+              $notes,
+              [System.Text.UTF8Encoding]::new($false)
+          )
+
       - name: Create GitHub release
         if: github.event_name == 'push'
         shell: pwsh
@@ -144,6 +169,7 @@ jobs:
           $version = "${{ needs.version.outputs.number }}"
           $tag = "v$version"
           $archive = "release\DotNetTestRunner-v$version-win-${{ env.ARCHITECTURE }}.zip"
+          $notes = "release\release-notes.md"
           $isPrerelease = $version.Contains("-")
 
           gh release view $tag --repo "${{ github.repository }}" *> $null
@@ -153,6 +179,12 @@ jobs:
               gh release upload $tag $archive `
                   --repo "${{ github.repository }}" `
                   --clobber
+
+              if ($LASTEXITCODE -eq 0) {
+                  gh release edit $tag `
+                      --repo "${{ github.repository }}" `
+                      --notes-file $notes
+              }
           }
           else {
               $arguments = @(
@@ -160,7 +192,7 @@ jobs:
                   "--repo", "${{ github.repository }}",
                   "--target", "${{ github.sha }}",
                   "--title", ".NET Test Runner $tag",
-                  "--generate-notes"
+                  "--notes-file", $notes
               )
 
               if ($isPrerelease) {

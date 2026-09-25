@@ -50,6 +50,12 @@ artifacts are retained for 30 days; assets attached to GitHub Releases remain
 available with their releases. The target computer does not need a separate
 .NET installation.
 
+Each released version must have a matching changelog heading in the form
+`## [1.2.3] - YYYY-MM-DD`. The workflow uses the content under that heading as
+the GitHub Release description and fails explicitly when the section is missing
+or empty. Keep upcoming changes under `## Unreleased`, then move them into a
+versioned section when updating the application version or creating a tag.
+
 ## Use the Application
 
 1. Select a test solution or project with **Browse**.
