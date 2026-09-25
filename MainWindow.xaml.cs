@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using DotNetTestRunner.Infrastructure.Logging;
 using DotNetTestRunner.Infrastructure.Services;
 using DotNetTestRunner.Presentation.ViewModels;
 
@@ -28,7 +29,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _MainWindowViewModel = new MainWindowViewModel(new SettingsService());
+
+        var testRunLogger = (System.Windows.Application.Current as App)?.TestRunLogger ?? new TestRunLogger();
+        _MainWindowViewModel = new MainWindowViewModel(new SettingsService(), testRunLogger);
         DataContext = _MainWindowViewModel;
 
         StateChanged += MainWindow_StateChanged;

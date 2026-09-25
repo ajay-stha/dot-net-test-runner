@@ -36,6 +36,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     ];
 
     private readonly ISettingsService _SettingsService;
+    private readonly ITestRunLogger _TestRunLogger;
     private string _TargetPath = string.Empty;
     private string _SelectedConfiguration = "MIQA";
     private string _StatusText = "Choose target .sln or .csproj";
@@ -50,9 +51,10 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     private bool _IsRestoringSettings;
     private string? _PendingRestoredConfiguration;
 
-    public MainWindowViewModel(ISettingsService settingsService)
+    public MainWindowViewModel(ISettingsService settingsService, ITestRunLogger testRunLogger)
     {
         _SettingsService = settingsService;
+        _TestRunLogger = testRunLogger;
         _UiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         BrowseTargetCommand = new RelayCommand(BrowseTarget);
         RefreshTestsCommand = new AsyncRelayCommand(LoadTestsAsync, CanExecuteTestCommands);
@@ -313,13 +315,15 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         var classFilter = string.Join("|", classFilterParts);
         var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(classFilter, $"Running class {className}", capturedLines);
+        var header = $"Running class {className}";
+        var exitCode = await RunTestsAsync(classFilter, header, capturedLines);
 
         var allClassMethods = matchingClassNodes
             .SelectMany(static classNode => classNode.Methods)
             .ToList();
 
         ApplyMethodResults(allClassMethods, capturedLines, exitCode);
+        LogRunSummary(header, allClassMethods, capturedLines);
 
         foreach (var classNode in matchingClassNodes)
         {
@@ -351,13 +355,17 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
 
         var exactFilter = $"FullyQualifiedName={EscapeFilterValue(fullyQualifiedName)}";
-        var exitCode = await RunTestsAsync(exactFilter, $"Running method {fullyQualifiedName}");
+        var header = $"Running method {fullyQualifiedName}";
+        var capturedLines = new List<string>();
+        var exitCode = await RunTestsAsync(exactFilter, header, capturedLines);
         var methodState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
 
         foreach (var methodNode in matchingMethods)
         {
             methodNode.RunState = methodState;
         }
+
+        LogRunSummary(header, matchingMethods, capturedLines);
 
         foreach (var classNode in TestClasses.Where(classNode => classNode.Methods.Any(
                      methodNode => string.Equals(methodNode.FullyQualifiedName, fullyQualifiedName, StringComparison.OrdinalIgnoreCase))))
@@ -403,7 +411,8 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             }
         }
 
-        var exitCode = await RunTestsAsync(null, "Running all tests");
+        var capturedLines = new List<string>();
+        var exitCode = await RunTestsAsync(null, "Running all tests", capturedLines);
         var runState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
 
         foreach (var classNode in TestClasses)
@@ -415,6 +424,8 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
                 methodNode.RunState = runState;
             }
         }
+
+        LogRunSummary("Running all tests", TestClasses.SelectMany(static classNode => classNode.Methods).ToList(), capturedLines);
     }
 
     private async Task RunSelectedTestsAsync()
@@ -459,6 +470,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         var exitCode = await RunTestsAsync(filter, header, capturedLines);
 
         ApplyMethodResults(selectedMethods, capturedLines, exitCode);
+        LogRunSummary(header, selectedMethods, capturedLines);
 
         foreach (var classNode in affectedClasses)
         {
@@ -541,34 +553,141 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
     private static bool IsMethodFailed(TestMethodNode methodNode, IReadOnlyCollection<string> failedNames)
     {
+        return failedNames.Any(failedName => DoesReportedTestNameMatch(failedName, methodNode));
+    }
+
+    /// <summary>
+    /// Determines whether a raw test name reported by <c>dotnet test</c> (e.g. from a
+    /// "Failed " console line) refers to the given method node, accounting for parameterized
+    /// test name suffixes.
+    /// </summary>
+    private static bool DoesReportedTestNameMatch(string reportedName, TestMethodNode methodNode)
+    {
         var fullyQualifiedName = methodNode.FullyQualifiedName;
+        var candidate = reportedName;
+        var parenIndex = candidate.IndexOf('(');
 
-        foreach (var failedName in failedNames)
+        if (parenIndex >= 0)
         {
-            var candidate = failedName;
-            var parenIndex = candidate.IndexOf('(');
+            candidate = candidate.Substring(0, parenIndex);
+        }
 
-            if (parenIndex >= 0)
+        candidate = candidate.Trim();
+
+        if (candidate.Length == 0)
+        {
+            return false;
+        }
+
+        return string.Equals(candidate, fullyQualifiedName, StringComparison.OrdinalIgnoreCase)
+            || fullyQualifiedName.EndsWith("." + candidate, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(candidate, methodNode.MethodName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Finds the failure cause captured for a failed method, matching by the raw test names
+    /// reported by <c>dotnet test</c>.
+    /// </summary>
+    private static string? FindFailureCause(TestMethodNode methodNode, IReadOnlyDictionary<string, string> failureCausesByReportedName)
+    {
+        foreach (var (reportedName, cause) in failureCausesByReportedName)
+        {
+            if (DoesReportedTestNameMatch(reportedName, methodNode))
             {
-                candidate = candidate.Substring(0, parenIndex);
+                return cause;
             }
+        }
 
-            candidate = candidate.Trim();
+        return null;
+    }
 
-            if (candidate.Length == 0)
+    /// <summary>
+    /// Scans <c>dotnet test</c> console output for "Failed &lt;test&gt;" blocks and extracts
+    /// the "Error Message:" text reported for each, keyed by the raw reported test name.
+    /// </summary>
+    private static Dictionary<string, string> ParseFailureCauses(IEnumerable<string> outputLines)
+    {
+        var lines = outputLines as IReadOnlyList<string> ?? outputLines.ToList();
+        var causesByReportedName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i].Trim();
+
+            if (!line.StartsWith("Failed ", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            if (string.Equals(candidate, fullyQualifiedName, StringComparison.OrdinalIgnoreCase)
-                || fullyQualifiedName.EndsWith("." + candidate, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(candidate, methodNode.MethodName, StringComparison.OrdinalIgnoreCase))
+            var rest = line.Substring("Failed ".Length).Trim();
+            var bracketIndex = rest.IndexOf(" [", StringComparison.Ordinal);
+
+            if (bracketIndex >= 0)
             {
-                return true;
+                rest = rest.Substring(0, bracketIndex);
+            }
+
+            rest = rest.Trim();
+
+            if (rest.Length == 0)
+            {
+                continue;
+            }
+
+            var cause = ExtractFailureCause(lines, i + 1);
+
+            if (!string.IsNullOrWhiteSpace(cause))
+            {
+                causesByReportedName[rest] = cause;
             }
         }
 
-        return false;
+        return causesByReportedName;
+    }
+
+    /// <summary>
+    /// Reads the "Error Message:" section following a "Failed " line, stopping at the "Stack
+    /// Trace:" section, a blank line, or the start of the next test's output.
+    /// </summary>
+    private static string? ExtractFailureCause(IReadOnlyList<string> lines, int startIndex)
+    {
+        var messageLines = new List<string>();
+        var inErrorMessage = false;
+
+        for (var i = startIndex; i < lines.Count; i++)
+        {
+            var trimmed = lines[i].Trim();
+
+            if (trimmed.StartsWith("Failed ", StringComparison.Ordinal) || trimmed.StartsWith("Passed ", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            if (string.Equals(trimmed, "Error Message:", StringComparison.OrdinalIgnoreCase))
+            {
+                inErrorMessage = true;
+                continue;
+            }
+
+            if (string.Equals(trimmed, "Stack Trace:", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            if (!inErrorMessage)
+            {
+                continue;
+            }
+
+            if (trimmed.Length == 0)
+            {
+                break;
+            }
+
+            messageLines.Add(trimmed);
+        }
+
+        return messageLines.Count > 0 ? string.Join(" ", messageLines) : null;
     }
 
     private List<TestMethodNode> GetSelectedMethods()
@@ -613,6 +732,12 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         IsRunning = true;
         LastRunState = TestRunState.Running;
 
+        var targetPath = TargetPath;
+        var configuration = SelectedConfiguration;
+        var stopwatch = Stopwatch.StartNew();
+
+        _TestRunLogger.LogTestRunStarted(header, targetPath, configuration, filter);
+
         try
         {
             StatusText = "Running tests...";
@@ -645,6 +770,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             var exitCode = await RunDotnetCommandAsync(command, sink);
             StatusText = exitCode == 0 ? "Test run completed" : "Test run failed";
             LastRunState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
+            _TestRunLogger.LogTestRunCompleted(header, targetPath, configuration, exitCode, stopwatch.Elapsed);
             return exitCode;
         }
         catch (Exception ex)
@@ -652,12 +778,30 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             AppendOutput($"Test run failed unexpectedly: {ex.Message}");
             StatusText = "Test run failed";
             LastRunState = TestRunState.Failed;
+            _TestRunLogger.LogTestRunError(header, targetPath, configuration, ex);
             return -1;
         }
         finally
         {
             IsRunning = false;
         }
+    }
+
+    /// <summary>
+    /// Logs the pass/fail counts for a completed run and, for each failed test, the failure
+    /// cause extracted from the captured <c>dotnet test</c> output when available.
+    /// </summary>
+    private void LogRunSummary(string header, IReadOnlyCollection<TestMethodNode> methods, IReadOnlyCollection<string>? capturedLines = null)
+    {
+        var passedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Passed);
+        var failedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Failed);
+        var failureCauses = capturedLines is not null ? ParseFailureCauses(capturedLines) : [];
+        var failedTests = methods
+            .Where(static methodNode => methodNode.RunState == TestRunState.Failed)
+            .Select(methodNode => new FailedTestDetail(methodNode.FullyQualifiedName, FindFailureCause(methodNode, failureCauses)))
+            .ToList();
+
+        _TestRunLogger.LogTestRunSummary(header, passedCount, failedCount, failedTests);
     }
 
     private static void UpdateClassRunStateFromMethods(TestClassNode classNode)
