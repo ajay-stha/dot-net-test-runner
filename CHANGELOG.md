@@ -17,6 +17,7 @@ All notable changes to this project are documented in this file.
 
 - Upgraded the WPF application target from `net8.0-windows` to `net10.0-windows`.
 - Updated `Microsoft.CodeAnalysis.CSharp` from `4.11.0` to `5.9.0`.
+- Updated GitHub Actions to Node.js 24-compatible action versions.
 
 ### Performance
 
