@@ -12,19 +12,35 @@
 
     <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
 
-    <SolidColorBrush x:Key="BackgroundBrush" Color="#0F1115" />
-    <SolidColorBrush x:Key="CardBrush" Color="#171A21" />
-    <SolidColorBrush x:Key="BorderBrush" Color="#2B3240" />
-    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#E6EDF7" />
-    <SolidColorBrush x:Key="SecondaryTextBrush" Color="#9AA8BF" />
-    <SolidColorBrush x:Key="InputBrush" Color="#11151D" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6" />
-    <SolidColorBrush x:Key="AccentHoverBrush" Color="#2F6FD6" />
-    <SolidColorBrush x:Key="AccentPressedBrush" Color="#2558A6" />
-    <SolidColorBrush x:Key="ItemHoverBrush" Color="#1D2430" />
-    <SolidColorBrush x:Key="ItemSelectedBrush" Color="#243045" />
-    <SolidColorBrush x:Key="MenuBackgroundBrush" Color="#1A202B" />
-    <SolidColorBrush x:Key="MenuHoverBrush" Color="#2A364A" />
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#0D0F14" />
+    <SolidColorBrush x:Key="CardBrush" Color="#161923" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#262C3A" />
+    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#ECF1FA" />
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="#93A1B8" />
+    <SolidColorBrush x:Key="InputBrush" Color="#10131B" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#4C8DFF" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#3E75DB" />
+    <SolidColorBrush x:Key="AccentPressedBrush" Color="#2F5CB0" />
+    <SolidColorBrush x:Key="ItemHoverBrush" Color="#1C212C" />
+    <SolidColorBrush x:Key="ItemSelectedBrush" Color="#212B42" />
+    <SolidColorBrush x:Key="MenuBackgroundBrush" Color="#171B24" />
+    <SolidColorBrush x:Key="MenuHoverBrush" Color="#29334A" />
+
+    <!--  Semantic status colors, shared by the tree status icons, the output status chips, and the colorized execution log.  -->
+    <SolidColorBrush x:Key="SuccessBrush" Color="#43C98B" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#FF5F71" />
+    <SolidColorBrush x:Key="SuccessSubtleBrush" Color="#2643C98B" />
+    <SolidColorBrush x:Key="DangerSubtleBrush" Color="#26FF5F71" />
+    <SolidColorBrush x:Key="RunningSubtleBrush" Color="#264C8DFF" />
+
+    <!--  Soft elevation shared by all toolbar/content cards to give the flat dark theme some depth.  -->
+    <DropShadowEffect
+        x:Key="CardShadowEffect"
+        BlurRadius="18"
+        Direction="270"
+        Opacity="0.35"
+        ShadowDepth="2"
+        Color="Black" />
 
     <!--
         Custom title bar (app header) palette. This mirrors the DotNetPublisher header
@@ -33,12 +49,12 @@
         hover (with a distinct red hover for Close).
     -->
     <LinearGradientBrush x:Key="HeaderBarBrush" StartPoint="0,0" EndPoint="1,0">
-        <GradientStop Offset="0" Color="#171A21" />
-        <GradientStop Offset="1" Color="#11151D" />
+        <GradientStop Offset="0" Color="#161923" />
+        <GradientStop Offset="1" Color="#10131B" />
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="AccentBarBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#3B82F6" />
-        <GradientStop Offset="1" Color="#2F6FD6" />
+        <GradientStop Offset="0" Color="#4C8DFF" />
+        <GradientStop Offset="1" Color="#3E75DB" />
     </LinearGradientBrush>
     <SolidColorBrush x:Key="TextBrightBrush" Color="#F4F8FF" />
     <SolidColorBrush x:Key="CloseHoverBrush" Color="#E81123" />
@@ -54,6 +70,19 @@
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
         <Setter Property="CaretBrush" Value="{StaticResource PrimaryTextBrush}" />
         <Setter Property="Padding" Value="6,4" />
+    </Style>
+
+    <!--  Hosts the colorized execution log (see Presentation/Behaviors/OutputLogBehavior).  -->
+    <Style TargetType="RichTextBox">
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+        <Setter Property="Background" Value="{StaticResource InputBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource PrimaryTextBrush}" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="IsDocumentEnabled" Value="False" />
+        <Setter Property="IsReadOnly" Value="True" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
     </Style>
 
     <Style TargetType="ComboBox">
@@ -240,12 +269,19 @@
         </Style.Triggers>
     </Style>
 
+    <!--
+        Default button look is a low-emphasis "ghost" style (transparent, bordered) so the
+        toolbar reads as a set of secondary actions. PrimaryButtonStyle and
+        AccentOutlineButtonStyle layer on top of it for the one or two actions per screen
+        that should stand out (e.g. Run All, Run Selected).
+    -->
     <Style TargetType="Button">
-        <Setter Property="Foreground" Value="White" />
-        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="Padding" Value="12,6" />
         <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -254,9 +290,48 @@
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="1"
-                        CornerRadius="5">
+                        CornerRadius="6">
                         <ContentPresenter
-                            Margin="6,2"
+                            Margin="{TemplateBinding Padding}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource ItemHoverBrush}" />
+                            <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource ItemSelectedBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--  High-emphasis action, e.g. "Run All".  -->
+    <Style
+        x:Key="PrimaryButtonStyle"
+        BasedOn="{StaticResource {x:Type Button}}"
+        TargetType="Button">
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border
+                        x:Name="ButtonBorder"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <ContentPresenter
+                            Margin="{TemplateBinding Padding}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center" />
                     </Border>
@@ -276,6 +351,15 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!--  Medium-emphasis action, e.g. "Run Selected" — accent-colored outline without a solid fill.  -->
+    <Style
+        x:Key="AccentOutlineButtonStyle"
+        BasedOn="{StaticResource {x:Type Button}}"
+        TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
     </Style>
 
     <Style TargetType="TreeView">

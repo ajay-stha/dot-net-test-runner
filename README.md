@@ -112,9 +112,9 @@ example:
 
 ```
 [2026-09-25 14:10:49.723] [INF] [User:jdoe] Application started.
-[2026-09-25 14:11:02.104] [INF] [User:jdoe] Test run started. Run: Running all tests, Target: C:\src\App.sln, Configuration: MIQA, Filter: (none)
-[2026-09-25 14:11:18.552] [WRN] [User:jdoe] Test run summary for Running all tests: 11 passed, 1 failed.
-[2026-09-25 14:11:18.553] [ERR] [User:jdoe] Test failed. Run: Running all tests, Test: MyApp.Tests.FooTests.Bar_ShouldReturnTrue, Cause: Assert.That(1 + 1, Is.EqualTo(3)) Expected: 3 But was: 2
+[2026-09-25 14:11:02.104] [INF] [User:jdoe] RUN START | Run=Running all tests | Target=C:\src\App.sln | Config=MIQA | Filter=(none)
+[2026-09-25 14:11:18.552] [WRN] [User:jdoe] RUN SUMMARY | Run=Running all tests | Passed=11 | Failed=1
+[2026-09-25 14:11:18.553] [ERR] [User:jdoe] TEST FAILED | Run=Running all tests | Test=MyApp.Tests.FooTests.Bar_ShouldReturnTrue | Error=Assert.That(1 + 1, Is.EqualTo(3)) Expected: 3 But was: 2 | StackTrace=at MyApp.Tests.FooTests.Bar_ShouldReturnTrue() in C:\src\Tests\FooTests.cs:line 42
 ```
 
 What gets logged:
@@ -124,9 +124,9 @@ What gets logged:
   exceptions, so an unexpected stop leaves a record of what caused it.
 - Each test run's start (target, configuration, filter), completion (exit code, duration),
   and a pass/fail summary.
-- For each failed test, its own log entry naming the test and the failure cause (the "Error
-  Message:" text reported by the test framework), when it can be parsed from the `dotnet
-  test` console output.
+- For each failed test, its own log entry naming the test, the error message, and the stack
+  trace reported by the test framework, when they can be parsed from the `dotnet test`
+  console output.
 
 Log verbosity and rolling behavior are configured in `logsettings.json`, deployed next to the
 application executable:
@@ -167,6 +167,7 @@ folder-structure and styling convention reference.
 - `Infrastructure/Logging/`: Serilog bootstrap and `ITestRunLogger` implementation (`AppLoggerBootstrapper`, `TestRunLogger`).
 - `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel`).
 - `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
+- `Presentation/Behaviors/`: reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log).
 - `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.
 - `logsettings.json`: log level and rolling file configuration, deployed alongside the executable.
 - `DotNetTestRunner.csproj`: application project.

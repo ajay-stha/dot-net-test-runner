@@ -11,15 +11,34 @@ All notable changes to this project are documented in this file.
   activity (start, completion, and pass/fail summaries with failed test names and the
   Windows user account that ran them) are written to a rolling daily log file under
   `%APPDATA%\DotNetTestRunner\logs\`.
-- Added failure-cause logging: when a test fails, the reported "Error Message:" text from
-  the `dotnet test` console output is parsed and logged alongside the failed test name (see
-  `FailedTestDetail`), so the log records why a test failed, not just that it failed.
+- Added failed-test detail logging: when a test fails, the reported "Error Message:" and
+  "Stack Trace:" sections from the `dotnet test` console output are parsed and logged
+  alongside the failed test name (see `FailedTestDetail`), so the log records both the error
+  and the location where it occurred.
 - Added `logsettings.json` (deployed alongside the executable) to configure the minimum log
   level and rolling file behavior (rolling interval, retained file count, and file size
   limit) without recompiling. See `ILoggingSettingsProvider`/`LoggingSettingsProvider` and
   `AppLoggerBootstrapper`.
 - Added `ITestRunLogger`/`TestRunLogger` following the existing layered architecture
   (`Application/Abstractions`, `Infrastructure/Logging`, `Domain/Models`).
+
+### Changed
+
+- Enabled window-level layout rounding and pixel snapping to keep borders, icons, and text
+  crisp on high-DPI displays and fractional Windows scaling.
+- Improved log readability with stable single-line event formats (`RUN START`, `RUN END`,
+  `RUN SUMMARY`, and `TEST FAILED`), normalized embedded error and stack-trace line breaks,
+  and concise duration values.
+- Refreshed the main window's visual design: a refined dark color palette, elevated cards
+  with soft shadows, a clearer button hierarchy (a filled primary "Run All", an
+  accent-outlined "Run Selected", and ghost-style secondary actions), icon-labeled buttons
+  and section headers, and rounded status "chip" badges for the Running/Passed/Failed
+  indicator.
+- Combined the target path and configuration toolbars into a single card to reduce visual
+  clutter and give the test explorer/output panes more vertical space.
+- The Execution Output panel now renders as a colorized log (`Presentation/Behaviors/OutputLogBehavior`)
+  instead of plain text, highlighting section headers, echoed commands, and passed/failed
+  result lines so failures are easy to spot at a glance.
 
 ## [1.0.1] - 2026-09-25
 
