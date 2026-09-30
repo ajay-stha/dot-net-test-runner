@@ -12,6 +12,7 @@ public sealed partial class TestOutputParser : ITestOutputParser
 {
     private const string FAILED_PREFIX = "Failed ";
     private const string PASSED_PREFIX = "Passed ";
+    private const string SKIPPED_PREFIX = "Skipped ";
     private const string ERROR_MESSAGE_HEADING = "Error Message:";
     private const string STACK_TRACE_HEADING = "Stack Trace:";
     private const string TEST_LIST_HEADING = "The following Tests are available";
@@ -133,6 +134,37 @@ public sealed partial class TestOutputParser : ITestOutputParser
         return detailsByReportedName;
     }
 
+    /// <inheritdoc />
+    public TestResultNotice? ReadResultNotice(string outputLine)
+    {
+        var line = outputLine.Trim();
+
+        var outcome = line switch
+        {
+            _ when line.StartsWith(PASSED_PREFIX, StringComparison.Ordinal) => TestOutcome.Passed,
+            _ when line.StartsWith(FAILED_PREFIX, StringComparison.Ordinal) => TestOutcome.Failed,
+            _ when line.StartsWith(SKIPPED_PREFIX, StringComparison.Ordinal) => TestOutcome.Skipped,
+            _ => (TestOutcome?)null
+        };
+
+        if (outcome is null)
+        {
+            return null;
+        }
+
+        var prefixLength = outcome switch
+        {
+            TestOutcome.Passed => PASSED_PREFIX.Length,
+            TestOutcome.Failed => FAILED_PREFIX.Length,
+            _ => SKIPPED_PREFIX.Length
+        };
+
+        var reportedName = ReadReportedName(line[prefixLength..]);
+
+        // "Passed!" / "Failed!" summary lines share the prefix but name no test.
+        return reportedName is null ? null : new TestResultNotice(reportedName, outcome.Value);
+    }
+
     /// <summary>
     /// Reads the test name from a "Failed &lt;test&gt; [duration]" line, discarding the
     /// trailing duration.
@@ -148,7 +180,18 @@ public sealed partial class TestOutputParser : ITestOutputParser
             return null;
         }
 
-        var rest = line[FAILED_PREFIX.Length..].Trim();
+        return ReadReportedName(line[FAILED_PREFIX.Length..]);
+    }
+
+    /// <summary>
+    /// Strips the trailing "[duration]" from the part of a result line that follows the
+    /// outcome prefix.
+    /// </summary>
+    /// <param name="afterPrefix">Text following the outcome prefix.</param>
+    /// <returns>The reported test name, or <see langword="null"/> when none remains.</returns>
+    private static string? ReadReportedName(string afterPrefix)
+    {
+        var rest = afterPrefix.Trim();
         var durationIndex = rest.IndexOf(" [", StringComparison.Ordinal);
 
         if (durationIndex >= 0)
