@@ -24,11 +24,13 @@ application, so conventions are consistent across both codebases.
 | Path | Purpose |
 |------|---------|
 | [App.xaml](App.xaml) / [.cs](App.xaml.cs) | Application entry point and merged resource dictionaries. |
-| [MainWindow.xaml](MainWindow.xaml) / [.cs](MainWindow.xaml.cs) | Main application window. Code-behind is limited to UI wiring (font-size shortcut, `DataContext` setup). |
-| `Application/Abstractions/` | Service interfaces (`ISettingsService`). |
-| `Domain/Models/` | Serializable value models (`TestRunnerSettings`). |
-| `Infrastructure/Services/` | Concrete service implementations (`SettingsService`). |
-| `Presentation/ViewModels/` | MVVM view models (`MainWindowViewModel`). |
+| [MainWindow.xaml](MainWindow.xaml) / [.cs](MainWindow.xaml.cs) | Main application window. Code-behind is limited to UI wiring (font-size shortcut, `DataContext` setup) and the `CreateViewModel` composition root. |
+| `Application/Abstractions/` | Service interfaces (`ISettingsService`, `IDotnetCommandRunner`, `ITestOutputParser`, `ITestDiscoveryService`, `ISourceTestIndexer`, `ITestTargetService`, …). |
+| `Domain/Models/` | Value models (`TestRunnerSettings`, `TestDiscoveryEntry`, `DotnetCommandRequest`, `TestRunOutcome`, …). |
+| `Domain/Services/` | Dependency-free rules usable from any layer (`TestNameMatcher`, `TestFilterBuilder`). |
+| `Infrastructure/Services/` | Concrete service implementations (`SettingsService`, `DotnetCommandRunner`, `TestOutputParser`, `SourceTestIndexer`, …). |
+| `Presentation/ViewModels/` | MVVM view models (`MainWindowViewModel`, `TestTreeViewModel`, tree nodes, `OutputLogBuffer`, `ObservableObject`). |
+| `Presentation/Reporting/` | Run-log reporting (`TestRunReporter`, `TestRunContext`) — turns run state and console output into log records. |
 | `Presentation/Commands/` | `RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>` (hand-rolled `ICommand` implementations). |
 | `Presentation/Behaviors/` | Reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log). |
 | `Styles/` | Shared XAML resource dictionary (`Styles.xaml`) — see [Styles Convention](#styles-convention) below. |
@@ -140,9 +142,19 @@ changes by building in `Debug`/`Release` and manually exercising the discovery/r
 ## Key Patterns and Conventions
 
 - **Layered architecture:** interfaces live in `Application/Abstractions/`, implementations in
-  `Infrastructure/Services/`, serializable models in `Domain/Models/`. View models depend only
-  on interfaces (constructor injection — this app has no DI container, so
-  [MainWindow.xaml.cs](MainWindow.xaml.cs) constructs and passes services directly).
+  `Infrastructure/Services/`, value models in `Domain/Models/`, and dependency-free rules in
+  `Domain/Services/`. View models depend only on interfaces (constructor injection — this app
+  has no DI container, so [MainWindow.xaml.cs](MainWindow.xaml.cs) builds the service graph in
+  `CreateViewModel` and passes it in).
+- **View model composition:** [`MainWindowViewModel`](Presentation/ViewModels/MainWindowViewModel.cs)
+  orchestrates only. Output parsing, source scanning, process execution, and target inspection
+  live in services; the test tree, its selection, and its run-state bookkeeping live in
+  [`TestTreeViewModel`](Presentation/ViewModels/TestTreeViewModel.cs); console output buffering
+  lives in [`OutputLogBuffer`](Presentation/ViewModels/OutputLogBuffer.cs); run logging lives in
+  [`TestRunReporter`](Presentation/Reporting/TestRunReporter.cs). Keep new logic out
+  of the view model unless it is genuinely about sequencing or user-facing state.
+- **Bindable objects** derive from [`ObservableObject`](Presentation/ViewModels/ObservableObject.cs)
+  rather than implementing `INotifyPropertyChanged` again.
 - **Settings persistence:** [`MainWindowViewModel`](Presentation/ViewModels/MainWindowViewModel.cs)
   persists the selected target path and build configuration via `ISettingsService` to
   `%APPDATA%\DotNetTestRunner\settings.json`, restoring them at startup (falling back to the
@@ -155,9 +167,11 @@ changes by building in `Debug`/`Release` and manually exercising the discovery/r
   that way.
 - **`#region`/logical grouping:** organize large files into clearly separated sections
   (fields, construction, bindable properties, commands, private helpers).
-- **External processes:** test discovery and execution run `dotnet test`/`dotnet build` via
-  `MainWindowViewModel`, streaming stdout/stderr back to the UI through a dispatcher-marshaled
-  output queue.
+- **External processes:** test discovery and execution run `dotnet test` via
+  [`DotnetCommandRunner`](Infrastructure/Services/DotnetCommandRunner.cs), which owns process
+  lifetime, the bounded output drain, process-tree termination, and the
+  [`AppUnderTestWatchdog`](Infrastructure/Services/AppUnderTestWatchdog.cs). Output is streamed
+  back to the UI through the dispatcher-marshaled `OutputLogBuffer`.
 
 ## Adding a New Service
 
@@ -165,9 +179,9 @@ Trace the full wiring chain — a new service is not usable until all steps are 
 
 1. Add the interface to `Application/Abstractions/I{Name}Service.cs`.
 2. Add the implementation to `Infrastructure/Services/{Name}Service.cs`.
-3. Add any serializable models it needs to `Domain/Models/`.
-4. Construct it where it is consumed (e.g. [MainWindow.xaml.cs](MainWindow.xaml.cs)) and pass
-   it into the consuming view model's constructor, storing it in a `readonly` field.
+3. Add any models it needs to `Domain/Models/`, and any dependency-free rules to `Domain/Services/`.
+4. Construct it in `CreateViewModel` in [MainWindow.xaml.cs](MainWindow.xaml.cs) and pass it
+   into the consuming view model's constructor, storing it in a `readonly` field.
 
 ## Documentation
 

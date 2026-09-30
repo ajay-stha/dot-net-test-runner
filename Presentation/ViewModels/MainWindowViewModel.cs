@@ -1,61 +1,96 @@
 using System.Collections.ObjectModel;
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
-using System.Windows;
 using System.Windows.Threading;
-using System.Xml.Linq;
 using DotNetTestRunner.Application.Abstractions;
 using DotNetTestRunner.Domain.Models;
+using DotNetTestRunner.Domain.Services;
 using DotNetTestRunner.Presentation.Commands;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+using DotNetTestRunner.Presentation.Reporting;
 using Microsoft.Win32;
 
 namespace DotNetTestRunner.Presentation.ViewModels;
 
-public sealed partial class MainWindowViewModel : INotifyPropertyChanged
+/// <summary>
+/// Drives the main window: choosing a target, discovering its tests, running them, and
+/// reporting progress. Parsing, source scanning, and process execution are delegated to
+/// services; this type owns only user-facing state and the order in which those services run.
+/// </summary>
+public sealed class MainWindowViewModel : ObservableObject
 {
-    [GeneratedRegex(
-        "^[A-Za-z_][A-Za-z0-9_+.()]*$",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex TestNameRegex();
+    #region Constants
 
-    private static readonly string[] _DefaultConfigurations =
-    [
-        "Debug",
-        "Release",
-        "MIQA",
-        "UAT"
-    ];
+    private const double MINIMUM_FONT_SIZE = 11;
+    private const double MAXIMUM_FONT_SIZE = 26;
+    private const double TREE_ICON_SIZE_OFFSET = 3;
+    private const string PREFERRED_CONFIGURATION = "MIQA";
+
+    /// <summary>
+    /// Configurations offered when a target does not declare its own.
+    /// </summary>
+    private static readonly string[] _DefaultConfigurations = ["Debug", "Release", "MIQA", "UAT"];
+
+    /// <summary>
+    /// How long test discovery may run before it is abandoned.
+    /// </summary>
+    private static readonly TimeSpan DISCOVERY_TIMEOUT = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// How many trailing output lines to show when discovery fails.
+    /// </summary>
+    private const int FAILED_DISCOVERY_OUTPUT_LINE_COUNT = 30;
+
+    #endregion
+
+    #region Fields
 
     private readonly ISettingsService _SettingsService;
-    private readonly ITestRunLogger _TestRunLogger;
+    private readonly TestRunReporter _TestRunReporter;
+    private readonly IDotnetCommandRunner _DotnetCommandRunner;
+    private readonly ITestDiscoveryService _TestDiscoveryService;
+    private readonly ITestOutputParser _TestOutputParser;
+    private readonly ITestTargetService _TestTargetService;
+    private readonly OutputLogBuffer _OutputLogBuffer;
+
     private string _TargetPath = string.Empty;
-    private string _SelectedConfiguration = "MIQA";
+    private string _SelectedConfiguration = PREFERRED_CONFIGURATION;
     private string _StatusText = "Choose target .sln or .csproj";
-    private string _OutputLog = string.Empty;
     private bool _IsRunning;
     private double _UiFontSize = 14;
     private TestRunState _LastRunState = TestRunState.None;
-    private readonly Dispatcher _UiDispatcher;
-    private readonly StringBuilder _OutputBuilder = new();
-    private readonly ConcurrentQueue<string> _PendingOutputLines = new();
-    private int _IsOutputFlushScheduled;
     private bool _IsRestoringSettings;
     private string? _PendingRestoredConfiguration;
+    private CancellationTokenSource? _RunCancellation;
+    private RunStopReason _RunStopReason;
 
-    public MainWindowViewModel(ISettingsService settingsService, ITestRunLogger testRunLogger)
+    #endregion
+
+    #region Construction
+
+    public MainWindowViewModel(
+        ISettingsService settingsService,
+        TestRunReporter testRunReporter,
+        IDotnetCommandRunner dotnetCommandRunner,
+        ITestDiscoveryService testDiscoveryService,
+        ITestOutputParser testOutputParser,
+        ITestTargetService testTargetService)
     {
         _SettingsService = settingsService;
-        _TestRunLogger = testRunLogger;
-        _UiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        _TestRunReporter = testRunReporter;
+        _DotnetCommandRunner = dotnetCommandRunner;
+        _TestDiscoveryService = testDiscoveryService;
+        _TestOutputParser = testOutputParser;
+        _TestTargetService = testTargetService;
+
+        var uiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        _OutputLogBuffer = new OutputLogBuffer(uiDispatcher);
+        _OutputLogBuffer.PropertyChanged += OnOutputLogBufferChanged;
+
+        TestTree = new TestTreeViewModel();
+        TestTree.SelectionChanged += OnTestSelectionChanged;
+
         BrowseTargetCommand = new RelayCommand(BrowseTarget);
         RefreshTestsCommand = new AsyncRelayCommand(LoadTestsAsync, CanExecuteTestCommands);
         RunAllCommand = new AsyncRelayCommand(RunAllTestsAsync, CanExecuteTestCommands);
@@ -63,38 +98,44 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         ClearSelectionCommand = new RelayCommand(ClearSelection, CanClearSelection);
         RunClassCommand = new AsyncRelayCommand<TestClassNode>(RunClassNodeAsync, CanExecuteRunClassNode);
         RunMethodCommand = new AsyncRelayCommand<TestMethodNode>(RunMethodNodeAsync, CanExecuteRunMethodNode);
-        ClearLogCommand = new RelayCommand(ClearLog);
+        ClearLogCommand = new RelayCommand(_OutputLogBuffer.Clear);
+        StopCommand = new RelayCommand(StopRun, CanStopRun);
 
-        foreach (var configuration in _DefaultConfigurations)
+        ResetConfigurations(_DefaultConfigurations);
+        RestorePersistedTarget();
+    }
+
+    /// <summary>
+    /// Restores the target used in the previous session, falling back to a target discovered
+    /// near the application, and selects it without persisting the restored values again.
+    /// </summary>
+    private void RestorePersistedTarget()
+    {
+        var persistedSettings = _SettingsService.Load();
+        var initialTarget = _TestTargetService.ResolveInitialTargetPath(persistedSettings.TargetPath);
+
+        if (string.IsNullOrWhiteSpace(initialTarget))
         {
-            Configurations.Add(configuration);
+            return;
         }
 
-        var persistedSettings = _SettingsService.Load();
-        var initialTarget = ResolveInitialTargetPath(persistedSettings.TargetPath);
+        _IsRestoringSettings = true;
+        _PendingRestoredConfiguration = persistedSettings.SelectedConfiguration;
 
-        if (!string.IsNullOrWhiteSpace(initialTarget))
+        try
         {
-            _IsRestoringSettings = true;
-            _PendingRestoredConfiguration = persistedSettings.SelectedConfiguration;
-
-            try
-            {
-                SetTargetPath(initialTarget);
-            }
-            finally
-            {
-                _IsRestoringSettings = false;
-                _PendingRestoredConfiguration = null;
-            }
+            SetTargetPath(initialTarget);
+        }
+        finally
+        {
+            _IsRestoringSettings = false;
+            _PendingRestoredConfiguration = null;
         }
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
+    #endregion
 
-    public ObservableCollection<string> Configurations { get; } = [];
-
-    public ObservableCollection<TestClassNode> TestClasses { get; } = [];
+    #region Commands
 
     public RelayCommand BrowseTargetCommand { get; }
 
@@ -112,6 +153,30 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
     public RelayCommand ClearLogCommand { get; }
 
+    public RelayCommand StopCommand { get; }
+
+    #endregion
+
+    #region Bindable properties
+
+    /// <summary>
+    /// Gets the tree of discovered tests.
+    /// </summary>
+    public TestTreeViewModel TestTree { get; }
+
+    /// <summary>
+    /// Gets the test classes shown in the tree.
+    /// </summary>
+    public ObservableCollection<TestClassNode> TestClasses => TestTree.Classes;
+
+    /// <summary>
+    /// Gets the build configurations offered for the current target.
+    /// </summary>
+    public ObservableCollection<string> Configurations { get; } = [];
+
+    /// <summary>
+    /// Gets or sets the <c>.sln</c> or <c>.csproj</c> the runner targets.
+    /// </summary>
     public string TargetPath
     {
         get => _TargetPath;
@@ -120,62 +185,67 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             if (SetProperty(ref _TargetPath, value))
             {
                 NotifyCommandStateChanged();
-
-                if (!_IsRestoringSettings)
-                {
-                    SavePersistedSettings();
-                }
+                SavePersistedSettings();
             }
         }
     }
 
+    /// <summary>
+    /// Gets or sets the build configuration used for discovery and runs.
+    /// </summary>
     public string SelectedConfiguration
     {
         get => _SelectedConfiguration;
         set
         {
-            if (SetProperty(ref _SelectedConfiguration, value) && !_IsRestoringSettings)
+            if (SetProperty(ref _SelectedConfiguration, value))
             {
                 SavePersistedSettings();
             }
         }
     }
 
+    /// <summary>
+    /// Gets or sets the message shown beside the toolbar.
+    /// </summary>
     public string StatusText
     {
         get => _StatusText;
         set => SetProperty(ref _StatusText, value);
     }
 
-    public string OutputLog
-    {
-        get => _OutputLog;
-        set => SetProperty(ref _OutputLog, value);
-    }
+    /// <summary>
+    /// Gets the accumulated console output of the current session.
+    /// </summary>
+    public string OutputLog => _OutputLogBuffer.Text;
 
+    /// <summary>
+    /// Gets or sets the font size of the window, clamped to a readable range.
+    /// </summary>
     public double UiFontSize
     {
         get => _UiFontSize;
         set
         {
-            var clamped = Math.Clamp(value, 11, 26);
-
-            if (SetProperty(ref _UiFontSize, clamped))
+            if (SetProperty(ref _UiFontSize, Math.Clamp(value, MINIMUM_FONT_SIZE, MAXIMUM_FONT_SIZE)))
             {
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TreeIconSize)));
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TreeIconStrokeThickness)));
+                OnPropertyChanged(nameof(TreeIconSize));
             }
         }
     }
 
-    public double TreeIconSize => UiFontSize + 3;
+    /// <summary>
+    /// Gets the size of the status icons in the test tree, scaled with the font.
+    /// </summary>
+    public double TreeIconSize => UiFontSize + TREE_ICON_SIZE_OFFSET;
 
-    public double TreeIconStrokeThickness => Math.Max(1.5, Math.Round(UiFontSize * 0.13, 2));
-
+    /// <summary>
+    /// Gets or sets a value indicating whether a discovery or run is in progress.
+    /// </summary>
     public bool IsRunning
     {
         get => _IsRunning;
-        set
+        private set
         {
             if (SetProperty(ref _IsRunning, value))
             {
@@ -184,16 +254,17 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Gets or sets the overall state of the most recent run.
+    /// </summary>
     public TestRunState LastRunState
     {
         get => _LastRunState;
-        set
+        private set
         {
             if (SetProperty(ref _LastRunState, value))
             {
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunInProgress)));
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLastRunPassed)));
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLastRunFailed)));
+                OnPropertiesChanged(nameof(IsRunInProgress), nameof(IsLastRunPassed), nameof(IsLastRunFailed));
             }
         }
     }
@@ -204,10 +275,22 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
     public bool IsLastRunFailed => LastRunState == TestRunState.Failed;
 
+    #endregion
+
+    #region Public operations
+
+    /// <summary>
+    /// Changes the window font size by a relative amount.
+    /// </summary>
+    /// <param name="delta">Amount to add to the current size.</param>
     public void AdjustFontSize(double delta)
     {
         UiFontSize += delta;
     }
+
+    #endregion
+
+    #region Target selection
 
     private void BrowseTarget()
     {
@@ -225,687 +308,78 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task LoadTestsAsync()
-    {
-        if (!CanExecuteTestCommands())
-        {
-            return;
-        }
-
-        IsRunning = true;
-
-        try
-        {
-            StatusText = "Discovering tests...";
-            AppendOutput($"{Environment.NewLine}--- Discover tests ({SelectedConfiguration}) ---");
-            AppendOutput("Discovering tests. This can take a moment for large solutions.");
-
-            var outputLines = new List<string>();
-            var discoverArgs = $"test \"{TargetPath}\" -c {SelectedConfiguration} --list-tests --nologo";
-
-            AppendOutput($"> dotnet {discoverArgs}");
-
-            var exitCode = await RunDotnetCommandAsync(
-                discoverArgs,
-                line => outputLines.Add(line),
-                TimeSpan.FromMinutes(2));
-
-            var parsedTests = ParseTests(outputLines)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(static test => test, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var resolvedEntries = await ResolveTestEntriesAsync(parsedTests);
-            RebuildTestTree(resolvedEntries);
-
-            if (exitCode != 0)
-            {
-                foreach (var line in outputLines.TakeLast(30))
-                {
-                    AppendOutput(line);
-                }
-            }
-
-            StatusText = exitCode == 0
-                ? $"Loaded {TestClasses.Count} classes and {resolvedEntries.Count} tests"
-                : "Failed to discover tests";
-
-            AppendOutput(StatusText);
-        }
-        finally
-        {
-            IsRunning = false;
-        }
-    }
-
-    public async Task RunClassAsync(string className)
-    {
-        if (!CanExecuteTestCommands() || string.IsNullOrWhiteSpace(className))
-        {
-            return;
-        }
-
-        var matchingClassNodes = TestClasses
-            .Where(node => string.Equals(node.ClassName, className, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        foreach (var classNode in matchingClassNodes)
-        {
-            classNode.RunState = TestRunState.Running;
-
-            foreach (var methodNode in classNode.Methods)
-            {
-                methodNode.RunState = TestRunState.Running;
-            }
-        }
-
-        var selectedClassMethods = matchingClassNodes
-            .SelectMany(static classNode => classNode.Methods)
-            .Select(static methodNode => methodNode.FullyQualifiedName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (selectedClassMethods.Count == 0)
-        {
-            return;
-        }
-
-        var classFilterParts = selectedClassMethods
-            .Select(static testName => $"FullyQualifiedName~{EscapeFilterValue(testName)}");
-
-        var classFilter = string.Join("|", classFilterParts);
-        var capturedLines = new List<string>();
-        var header = $"Running class {className}";
-        var exitCode = await RunTestsAsync(classFilter, header, capturedLines);
-
-        var allClassMethods = matchingClassNodes
-            .SelectMany(static classNode => classNode.Methods)
-            .ToList();
-
-        ApplyMethodResults(allClassMethods, capturedLines, exitCode);
-        LogRunSummary(header, allClassMethods, capturedLines);
-
-        foreach (var classNode in matchingClassNodes)
-        {
-            UpdateClassRunStateFromMethods(classNode);
-        }
-    }
-
-    public async Task RunMethodAsync(string fullyQualifiedName)
-    {
-        if (!CanExecuteTestCommands() || string.IsNullOrWhiteSpace(fullyQualifiedName))
-        {
-            return;
-        }
-
-        var matchingMethods = TestClasses
-            .SelectMany(static classNode => classNode.Methods)
-            .Where(node => string.Equals(node.FullyQualifiedName, fullyQualifiedName, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        foreach (var methodNode in matchingMethods)
-        {
-            methodNode.RunState = TestRunState.Running;
-        }
-
-        foreach (var classNode in TestClasses.Where(classNode => classNode.Methods.Any(
-                     methodNode => string.Equals(methodNode.FullyQualifiedName, fullyQualifiedName, StringComparison.OrdinalIgnoreCase))))
-        {
-            classNode.RunState = TestRunState.Running;
-        }
-
-        var exactFilter = $"FullyQualifiedName={EscapeFilterValue(fullyQualifiedName)}";
-        var header = $"Running method {fullyQualifiedName}";
-        var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(exactFilter, header, capturedLines);
-        var methodState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
-
-        foreach (var methodNode in matchingMethods)
-        {
-            methodNode.RunState = methodState;
-        }
-
-        LogRunSummary(header, matchingMethods, capturedLines);
-
-        foreach (var classNode in TestClasses.Where(classNode => classNode.Methods.Any(
-                     methodNode => string.Equals(methodNode.FullyQualifiedName, fullyQualifiedName, StringComparison.OrdinalIgnoreCase))))
-        {
-            UpdateClassRunStateFromMethods(classNode);
-        }
-    }
-
-    private Task RunClassNodeAsync(TestClassNode classNode)
-    {
-        return RunClassAsync(classNode.ClassName);
-    }
-
-    private Task RunMethodNodeAsync(TestMethodNode methodNode)
-    {
-        return RunMethodAsync(methodNode.FullyQualifiedName);
-    }
-
-    private bool CanExecuteRunClassNode(TestClassNode classNode)
-    {
-        return CanExecuteTestCommands() && !string.IsNullOrWhiteSpace(classNode.ClassName);
-    }
-
-    private bool CanExecuteRunMethodNode(TestMethodNode methodNode)
-    {
-        return CanExecuteTestCommands() && !string.IsNullOrWhiteSpace(methodNode.FullyQualifiedName);
-    }
-
-    private async Task RunAllTestsAsync()
-    {
-        if (!CanExecuteTestCommands())
-        {
-            return;
-        }
-
-        foreach (var classNode in TestClasses)
-        {
-            classNode.RunState = TestRunState.Running;
-
-            foreach (var methodNode in classNode.Methods)
-            {
-                methodNode.RunState = TestRunState.Running;
-            }
-        }
-
-        var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(null, "Running all tests", capturedLines);
-        var runState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
-
-        foreach (var classNode in TestClasses)
-        {
-            classNode.RunState = runState;
-
-            foreach (var methodNode in classNode.Methods)
-            {
-                methodNode.RunState = runState;
-            }
-        }
-
-        LogRunSummary("Running all tests", TestClasses.SelectMany(static classNode => classNode.Methods).ToList(), capturedLines);
-    }
-
-    private async Task RunSelectedTestsAsync()
-    {
-        if (!CanExecuteTestCommands())
-        {
-            return;
-        }
-
-        var selectedMethods = GetSelectedMethods();
-
-        if (selectedMethods.Count == 0)
-        {
-            return;
-        }
-
-        var affectedClasses = TestClasses
-            .Where(static classNode => classNode.Methods.Any(static methodNode => methodNode.IsSelected))
-            .ToList();
-
-        foreach (var methodNode in selectedMethods)
-        {
-            methodNode.RunState = TestRunState.Running;
-        }
-
-        foreach (var classNode in affectedClasses)
-        {
-            classNode.RunState = TestRunState.Running;
-        }
-
-        var filterParts = selectedMethods
-            .Select(static methodNode => methodNode.FullyQualifiedName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(static testName => $"FullyQualifiedName={EscapeFilterValue(testName)}");
-
-        var filter = string.Join("|", filterParts);
-        var header = selectedMethods.Count == 1
-            ? $"Running selected test {selectedMethods[0].FullyQualifiedName}"
-            : $"Running {selectedMethods.Count} selected tests";
-
-        var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(filter, header, capturedLines);
-
-        ApplyMethodResults(selectedMethods, capturedLines, exitCode);
-        LogRunSummary(header, selectedMethods, capturedLines);
-
-        foreach (var classNode in affectedClasses)
-        {
-            UpdateClassRunStateFromMethods(classNode);
-        }
-    }
-
-    private static void ApplyMethodResults(
-        IReadOnlyCollection<TestMethodNode> methods,
-        IReadOnlyCollection<string> capturedLines,
-        int exitCode)
-    {
-        if (exitCode == 0)
-        {
-            foreach (var methodNode in methods)
-            {
-                methodNode.RunState = TestRunState.Passed;
-            }
-
-            return;
-        }
-
-        var failedNames = ParseFailedTestNames(capturedLines);
-
-        if (failedNames.Count == 0)
-        {
-            foreach (var methodNode in methods)
-            {
-                methodNode.RunState = TestRunState.Failed;
-            }
-
-            return;
-        }
-
-        foreach (var methodNode in methods)
-        {
-            methodNode.RunState = IsMethodFailed(methodNode, failedNames)
-                ? TestRunState.Failed
-                : TestRunState.Passed;
-        }
-    }
-
-    private static List<string> ParseFailedTestNames(IEnumerable<string> outputLines)
-    {
-        var failed = new List<string>();
-
-        foreach (var rawLine in outputLines)
-        {
-            var line = rawLine.Trim();
-
-            if (!line.StartsWith("Failed ", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var rest = line.Substring("Failed ".Length).Trim();
-
-            if (rest.Length == 0)
-            {
-                continue;
-            }
-
-            var bracketIndex = rest.IndexOf(" [", StringComparison.Ordinal);
-
-            if (bracketIndex >= 0)
-            {
-                rest = rest.Substring(0, bracketIndex);
-            }
-
-            rest = rest.Trim();
-
-            if (rest.Length > 0)
-            {
-                failed.Add(rest);
-            }
-        }
-
-        return failed;
-    }
-
-    private static bool IsMethodFailed(TestMethodNode methodNode, IReadOnlyCollection<string> failedNames)
-    {
-        return failedNames.Any(failedName => DoesReportedTestNameMatch(failedName, methodNode));
-    }
-
     /// <summary>
-    /// Determines whether a raw test name reported by <c>dotnet test</c> (e.g. from a
-    /// "Failed " console line) refers to the given method node, accounting for parameterized
-    /// test name suffixes.
+    /// Adopts a new target: reloads its configurations, clears the tree, and starts discovery.
     /// </summary>
-    private static bool DoesReportedTestNameMatch(string reportedName, TestMethodNode methodNode)
-    {
-        var fullyQualifiedName = methodNode.FullyQualifiedName;
-        var candidate = reportedName;
-        var parenIndex = candidate.IndexOf('(');
-
-        if (parenIndex >= 0)
-        {
-            candidate = candidate.Substring(0, parenIndex);
-        }
-
-        candidate = candidate.Trim();
-
-        if (candidate.Length == 0)
-        {
-            return false;
-        }
-
-        return string.Equals(candidate, fullyQualifiedName, StringComparison.OrdinalIgnoreCase)
-            || fullyQualifiedName.EndsWith("." + candidate, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(candidate, methodNode.MethodName, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Finds the error and stack trace captured for a failed method, matching by the raw test
-    /// names reported by <c>dotnet test</c>.
-    /// </summary>
-    private static (string? ErrorMessage, string? StackTrace) FindFailureDetails(
-        TestMethodNode methodNode,
-        IReadOnlyDictionary<string, (string? ErrorMessage, string? StackTrace)> failureDetailsByReportedName)
-    {
-        foreach (var (reportedName, details) in failureDetailsByReportedName)
-        {
-            if (DoesReportedTestNameMatch(reportedName, methodNode))
-            {
-                return details;
-            }
-        }
-
-        return (null, null);
-    }
-
-    /// <summary>
-    /// Scans <c>dotnet test</c> console output for "Failed &lt;test&gt;" blocks and extracts
-    /// their error message and stack trace sections, keyed by the raw reported test name.
-    /// </summary>
-    private static Dictionary<string, (string? ErrorMessage, string? StackTrace)> ParseFailureDetails(
-        IEnumerable<string> outputLines)
-    {
-        var lines = outputLines as IReadOnlyList<string> ?? outputLines.ToList();
-        var detailsByReportedName =
-            new Dictionary<string, (string? ErrorMessage, string? StackTrace)>(StringComparer.OrdinalIgnoreCase);
-
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i].Trim();
-
-            if (!line.StartsWith("Failed ", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var rest = line.Substring("Failed ".Length).Trim();
-            var bracketIndex = rest.IndexOf(" [", StringComparison.Ordinal);
-
-            if (bracketIndex >= 0)
-            {
-                rest = rest.Substring(0, bracketIndex);
-            }
-
-            rest = rest.Trim();
-
-            if (rest.Length == 0)
-            {
-                continue;
-            }
-
-            var details = ExtractFailureDetails(lines, i + 1);
-
-            if (details.ErrorMessage is not null || details.StackTrace is not null)
-            {
-                detailsByReportedName[rest] = details;
-            }
-        }
-
-        return detailsByReportedName;
-    }
-
-    /// <summary>
-    /// Reads the error and stack trace sections following a "Failed " line, stopping at the
-    /// start of the next test's output.
-    /// </summary>
-    private static (string? ErrorMessage, string? StackTrace) ExtractFailureDetails(
-        IReadOnlyList<string> lines,
-        int startIndex)
-    {
-        var errorMessageLines = new List<string>();
-        var stackTraceLines = new List<string>();
-        var section = FailureOutputSection.None;
-
-        for (var i = startIndex; i < lines.Count; i++)
-        {
-            var trimmed = lines[i].Trim();
-
-            if (trimmed.StartsWith("Failed ", StringComparison.Ordinal) ||
-                trimmed.StartsWith("Passed ", StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            if (string.Equals(trimmed, "Error Message:", StringComparison.OrdinalIgnoreCase))
-            {
-                section = FailureOutputSection.ErrorMessage;
-                continue;
-            }
-
-            if (string.Equals(trimmed, "Stack Trace:", StringComparison.OrdinalIgnoreCase))
-            {
-                section = FailureOutputSection.StackTrace;
-                continue;
-            }
-
-            if (trimmed.Length == 0)
-            {
-                if (section == FailureOutputSection.StackTrace)
-                {
-                    break;
-                }
-
-                continue;
-            }
-
-            if (section == FailureOutputSection.ErrorMessage)
-            {
-                errorMessageLines.Add(trimmed);
-            }
-            else if (section == FailureOutputSection.StackTrace)
-            {
-                stackTraceLines.Add(trimmed);
-            }
-        }
-
-        return (
-            errorMessageLines.Count > 0 ? string.Join(" ", errorMessageLines) : null,
-            stackTraceLines.Count > 0 ? string.Join(Environment.NewLine, stackTraceLines) : null);
-    }
-
-    private enum FailureOutputSection
-    {
-        None,
-        ErrorMessage,
-        StackTrace,
-    }
-
-    private List<TestMethodNode> GetSelectedMethods()
-    {
-        return TestClasses
-            .SelectMany(static classNode => classNode.Methods)
-            .Where(static methodNode => methodNode.IsSelected)
-            .ToList();
-    }
-
-    private bool HasSelectedMethods()
-    {
-        return TestClasses.Any(static classNode => classNode.Methods.Any(static methodNode => methodNode.IsSelected));
-    }
-
-    private bool CanExecuteRunSelected()
-    {
-        return CanExecuteTestCommands() && HasSelectedMethods();
-    }
-
-    private void ClearSelection()
-    {
-        foreach (var classNode in TestClasses)
-        {
-            classNode.IsSelected = false;
-        }
-    }
-
-    private bool CanClearSelection()
-    {
-        return HasSelectedMethods();
-    }
-
-    private void OnNodeSelectionChanged(object? sender, EventArgs e)
-    {
-        RunSelectedCommand.NotifyCanExecuteChanged();
-        ClearSelectionCommand.NotifyCanExecuteChanged();
-    }
-
-    private async Task<int> RunTestsAsync(string? filter, string header, List<string>? capturedLines = null)
-    {
-        IsRunning = true;
-        LastRunState = TestRunState.Running;
-
-        var targetPath = TargetPath;
-        var configuration = SelectedConfiguration;
-        var stopwatch = Stopwatch.StartNew();
-
-        _TestRunLogger.LogTestRunStarted(header, targetPath, configuration, filter);
-
-        try
-        {
-            StatusText = "Running tests...";
-            AppendOutput($"{Environment.NewLine}--- {header} ({SelectedConfiguration}) ---");
-
-            var command = $"test \"{TargetPath}\" -c {SelectedConfiguration} --nologo";
-
-            if (!string.IsNullOrWhiteSpace(filter))
-            {
-                command += $" --filter \"{filter}\"";
-            }
-
-            AppendOutput($"> dotnet {command}");
-
-            Action<string> sink = AppendOutput;
-
-            if (capturedLines is not null)
-            {
-                sink = line =>
-                {
-                    lock (capturedLines)
-                    {
-                        capturedLines.Add(line);
-                    }
-
-                    AppendOutput(line);
-                };
-            }
-
-            var exitCode = await RunDotnetCommandAsync(command, sink);
-            StatusText = exitCode == 0 ? "Test run completed" : "Test run failed";
-            LastRunState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
-            _TestRunLogger.LogTestRunCompleted(header, targetPath, configuration, exitCode, stopwatch.Elapsed);
-            return exitCode;
-        }
-        catch (Exception ex)
-        {
-            AppendOutput($"Test run failed unexpectedly: {ex.Message}");
-            StatusText = "Test run failed";
-            LastRunState = TestRunState.Failed;
-            _TestRunLogger.LogTestRunError(header, targetPath, configuration, ex);
-            return -1;
-        }
-        finally
-        {
-            IsRunning = false;
-        }
-    }
-
-    /// <summary>
-    /// Logs the pass/fail counts for a completed run and, for each failed test, the error
-    /// message and stack trace extracted from the captured <c>dotnet test</c> output when
-    /// available.
-    /// </summary>
-    private void LogRunSummary(string header, IReadOnlyCollection<TestMethodNode> methods, IReadOnlyCollection<string>? capturedLines = null)
-    {
-        var passedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Passed);
-        var failedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Failed);
-        var failureDetails = capturedLines is not null ? ParseFailureDetails(capturedLines) : [];
-        var failedTests = methods
-            .Where(static methodNode => methodNode.RunState == TestRunState.Failed)
-            .Select(methodNode =>
-            {
-                var details = FindFailureDetails(methodNode, failureDetails);
-                return new FailedTestDetail(
-                    methodNode.FullyQualifiedName,
-                    details.ErrorMessage,
-                    details.StackTrace);
-            })
-            .ToList();
-
-        _TestRunLogger.LogTestRunSummary(header, passedCount, failedCount, failedTests);
-    }
-
-    private static void UpdateClassRunStateFromMethods(TestClassNode classNode)
-    {
-        if (classNode.Methods.Any(static methodNode => methodNode.RunState == TestRunState.Running))
-        {
-            classNode.RunState = TestRunState.Running;
-            return;
-        }
-
-        if (classNode.Methods.Any(static methodNode => methodNode.RunState == TestRunState.Failed))
-        {
-            classNode.RunState = TestRunState.Failed;
-            return;
-        }
-
-        if (classNode.Methods.Any(static methodNode => methodNode.RunState == TestRunState.Passed))
-        {
-            classNode.RunState = TestRunState.Passed;
-            return;
-        }
-
-        classNode.RunState = TestRunState.None;
-    }
-
+    /// <param name="targetPath">Path to the <c>.sln</c> or <c>.csproj</c>.</param>
     private void SetTargetPath(string targetPath)
     {
         TargetPath = targetPath;
 
-        var configurations = ReadConfigurations(targetPath).ToList();
+        var configurations = _TestTargetService.ReadConfigurations(targetPath);
+        ResetConfigurations(configurations.Count > 0 ? configurations : _DefaultConfigurations);
 
-        if (configurations.Count == 0)
-        {
-            configurations.AddRange(_DefaultConfigurations);
-        }
-
-        Configurations.Clear();
-
-        foreach (var configuration in configurations)
-        {
-            Configurations.Add(configuration);
-        }
-
-        var restoredConfiguration = _PendingRestoredConfiguration is { Length: > 0 }
-            ? Configurations.FirstOrDefault(configuration => string.Equals(configuration, _PendingRestoredConfiguration, StringComparison.OrdinalIgnoreCase))
-            : null;
-
-        var preferredConfiguration = Configurations
-            .FirstOrDefault(static configuration => string.Equals(configuration, "MIQA", StringComparison.OrdinalIgnoreCase));
-
-        SelectedConfiguration = restoredConfiguration ?? preferredConfiguration ?? Configurations[0];
-
-        TestClasses.Clear();
+        SelectedConfiguration = ChoosePreferredConfiguration();
+        TestTree.Rebuild([]);
 
         AppendOutput($"Using test target: {targetPath}");
         StatusText = "Target selected. Discovering tests...";
         _ = LoadTestsAfterTargetSelectionAsync();
     }
 
+    private void ResetConfigurations(IReadOnlyList<string> configurations)
+    {
+        Configurations.Clear();
+
+        foreach (var configuration in configurations)
+        {
+            Configurations.Add(configuration);
+        }
+    }
+
     /// <summary>
-    /// Persists the current target path and selected configuration so they can be
-    /// restored the next time the application starts.
+    /// Picks the configuration to select for a newly adopted target, preferring the one
+    /// restored from settings and otherwise the project's default.
+    /// </summary>
+    /// <returns>The configuration to select.</returns>
+    private string ChoosePreferredConfiguration()
+    {
+        var restoredConfiguration = _PendingRestoredConfiguration is { Length: > 0 }
+            ? FindConfiguration(_PendingRestoredConfiguration)
+            : null;
+
+        return restoredConfiguration
+            ?? FindConfiguration(PREFERRED_CONFIGURATION)
+            ?? Configurations[0];
+    }
+
+    private string? FindConfiguration(string name)
+    {
+        return Configurations.FirstOrDefault(
+            configuration => string.Equals(configuration, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Persists the current target path and selected configuration so they can be restored
+    /// the next time the application starts.
     /// </summary>
     private void SavePersistedSettings()
     {
+        if (_IsRestoringSettings)
+        {
+            return;
+        }
+
         _SettingsService.Save(new TestRunnerSettings
         {
             TargetPath = TargetPath,
             SelectedConfiguration = SelectedConfiguration
         });
     }
+
+    #endregion
+
+    #region Discovery
 
     private async Task LoadTestsAfterTargetSelectionAsync()
     {
@@ -920,6 +394,376 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task LoadTestsAsync()
+    {
+        if (!CanExecuteTestCommands())
+        {
+            return;
+        }
+
+        IsRunning = true;
+
+        using var discoveryCancellation = new CancellationTokenSource();
+        _RunCancellation = discoveryCancellation;
+        _RunStopReason = RunStopReason.None;
+        StopCommand.NotifyCanExecuteChanged();
+
+        try
+        {
+            StatusText = "Discovering tests...";
+            AppendOutput($"{Environment.NewLine}--- Discover tests ({SelectedConfiguration}) ---");
+            AppendOutput("Discovering tests. This can take a moment for large solutions.");
+
+            var outputLines = new List<string>();
+            var arguments = $"test \"{TargetPath}\" -c {SelectedConfiguration} --list-tests --nologo";
+
+            AppendOutput($"> dotnet {arguments}");
+
+            var result = await _DotnetCommandRunner.RunAsync(
+                CreateRequest(arguments, DISCOVERY_TIMEOUT, watchForClosedAppUnderTest: false),
+                line => outputLines.Add(line),
+                discoveryCancellation);
+
+            if (discoveryCancellation.IsCancellationRequested)
+            {
+                StatusText = "Test discovery stopped";
+                AppendOutput(StatusText);
+                return;
+            }
+
+            var discoveredTests = _TestOutputParser.ParseDiscoveredTestNames(outputLines);
+            var resolvedEntries = await _TestDiscoveryService.ResolveEntriesAsync(discoveredTests, TargetPath);
+
+            TestTree.Rebuild(resolvedEntries);
+            NotifyCommandStateChanged();
+
+            if (result.ExitCode != 0)
+            {
+                foreach (var line in outputLines.TakeLast(FAILED_DISCOVERY_OUTPUT_LINE_COUNT))
+                {
+                    AppendOutput(line);
+                }
+            }
+
+            StatusText = result.ExitCode == 0
+                ? $"Loaded {TestClasses.Count} classes and {resolvedEntries.Count} tests"
+                : "Failed to discover tests";
+
+            AppendOutput(StatusText);
+        }
+        finally
+        {
+            _RunCancellation = null;
+            IsRunning = false;
+        }
+    }
+
+    #endregion
+
+    #region Running tests
+
+    private async Task RunAllTestsAsync()
+    {
+        if (!CanExecuteTestCommands())
+        {
+            return;
+        }
+
+        var methods = TestTree.GetAllMethods();
+        await ExecuteRunAsync(filter: null, "Running all tests", methods, TestClasses);
+    }
+
+    private async Task RunSelectedTestsAsync()
+    {
+        if (!CanExecuteTestCommands())
+        {
+            return;
+        }
+
+        var selectedMethods = TestTree.GetSelectedMethods();
+
+        if (selectedMethods.Count == 0)
+        {
+            return;
+        }
+
+        var affectedClasses = TestTree.GetClassesWithSelectedMethods();
+        var filter = TestFilterBuilder.ForExactTests(
+            selectedMethods.Select(static methodNode => methodNode.FullyQualifiedName));
+
+        var header = selectedMethods.Count == 1
+            ? $"Running selected test {selectedMethods[0].FullyQualifiedName}"
+            : $"Running {selectedMethods.Count} selected tests";
+
+        await ExecuteRunAsync(filter, header, selectedMethods, affectedClasses);
+    }
+
+    private async Task RunClassNodeAsync(TestClassNode classNode)
+    {
+        if (!CanExecuteRunClassNode(classNode))
+        {
+            return;
+        }
+
+        var matchingClasses = TestTree.FindClasses(classNode.ClassName);
+        var methods = matchingClasses.SelectMany(static node => node.Methods).ToList();
+
+        if (methods.Count == 0)
+        {
+            return;
+        }
+
+        // A class filter must also match the generated names of data-driven cases, so the
+        // tests are matched by prefix rather than exactly.
+        var filter = TestFilterBuilder.ForTestsAndTheirCases(
+            methods.Select(static methodNode => methodNode.FullyQualifiedName));
+
+        await ExecuteRunAsync(filter, $"Running class {classNode.ClassName}", methods, matchingClasses);
+    }
+
+    private async Task RunMethodNodeAsync(TestMethodNode methodNode)
+    {
+        if (!CanExecuteRunMethodNode(methodNode))
+        {
+            return;
+        }
+
+        var fullyQualifiedName = methodNode.FullyQualifiedName;
+        var matchingMethods = TestTree.FindMethods(fullyQualifiedName);
+        var affectedClasses = TestTree.FindClassesContaining(fullyQualifiedName);
+        var filter = TestFilterBuilder.ForExactTests([fullyQualifiedName]);
+
+        await ExecuteRunAsync(filter, $"Running method {fullyQualifiedName}", matchingMethods, affectedClasses);
+    }
+
+    /// <summary>
+    /// Runs a set of tests and reflects the outcome in the tree and the run log.
+    /// </summary>
+    /// <param name="filter">Test filter, or <see langword="null"/> to run every test.</param>
+    /// <param name="header">Description of the run, used in status text and logs.</param>
+    /// <param name="methods">The tests being run.</param>
+    /// <param name="classes">The classes containing those tests.</param>
+    private async Task ExecuteRunAsync(
+        string? filter,
+        string header,
+        IReadOnlyList<TestMethodNode> methods,
+        IReadOnlyList<TestClassNode> classes)
+    {
+        TestTreeViewModel.MarkRunning(methods, classes);
+
+        var context = new TestRunContext(header, TargetPath, SelectedConfiguration);
+        var capturedLines = new List<string>();
+        var outcome = await RunTestsAsync(context, filter, capturedLines);
+
+        // An interrupted run reports no per-test results, so its tests must be cleared rather
+        // than marked failed.
+        if (outcome.WasStopped)
+        {
+            TestTreeViewModel.ResetRunStates(methods, classes);
+            return;
+        }
+
+        var failedNames = _TestOutputParser.ParseFailedTestNames(capturedLines);
+
+        TestTreeViewModel.ApplyResults(methods, failedNames, outcome.ExitCode);
+        TestTreeViewModel.UpdateClassStates(classes);
+        _TestRunReporter.ReportSummary(context, methods, capturedLines);
+    }
+
+    /// <summary>
+    /// Invokes <c>dotnet test</c> and translates the result into a run outcome, updating
+    /// status text and writing the run log entries.
+    /// </summary>
+    /// <param name="context">Describes the run being carried out.</param>
+    /// <param name="filter">Test filter, or <see langword="null"/> to run every test.</param>
+    /// <param name="capturedLines">Receives every line of console output.</param>
+    /// <returns>The outcome of the run.</returns>
+    private async Task<TestRunOutcome> RunTestsAsync(
+        TestRunContext context,
+        string? filter,
+        List<string> capturedLines)
+    {
+        IsRunning = true;
+        LastRunState = TestRunState.Running;
+
+        using var runCancellation = new CancellationTokenSource();
+        _RunCancellation = runCancellation;
+        _RunStopReason = RunStopReason.None;
+        StopCommand.NotifyCanExecuteChanged();
+
+        var stopwatch = Stopwatch.StartNew();
+        _TestRunReporter.ReportStarted(context, filter);
+
+        try
+        {
+            StatusText = "Running tests...";
+            AppendOutput($"{Environment.NewLine}--- {context.Header} ({context.Configuration}) ---");
+
+            var arguments = $"test \"{context.TargetPath}\" -c {context.Configuration} --nologo";
+
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                arguments += $" --filter \"{filter}\"";
+            }
+
+            AppendOutput($"> dotnet {arguments}");
+
+            var result = await _DotnetCommandRunner.RunAsync(
+                CreateRequest(arguments, timeout: null, watchForClosedAppUnderTest: true),
+                line => CaptureOutput(capturedLines, line),
+                runCancellation);
+
+            if (runCancellation.IsCancellationRequested || result.TimedOut)
+            {
+                return ReportStoppedRun(context, result, stopwatch.Elapsed);
+            }
+
+            StatusText = result.ExitCode == 0 ? "Test run completed" : "Test run failed";
+            LastRunState = result.ExitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
+            _TestRunReporter.ReportCompleted(context, result.ExitCode, stopwatch.Elapsed);
+
+            return new TestRunOutcome(result.ExitCode, WasStopped: false);
+        }
+        catch (Exception ex)
+        {
+            AppendOutput($"Test run failed unexpectedly: {ex.Message}");
+            StatusText = "Test run failed";
+            LastRunState = TestRunState.Failed;
+            _TestRunReporter.ReportError(context, ex);
+
+            return new TestRunOutcome(-1, WasStopped: false);
+        }
+        finally
+        {
+            _RunCancellation = null;
+            IsRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// Records a run that ended before all of its tests reported, distinguishing a run the
+    /// user stopped from one abandoned because the application under test was closed.
+    /// </summary>
+    /// <param name="context">Describes the run that was stopped.</param>
+    /// <param name="result">Result reported by the command runner.</param>
+    /// <param name="duration">How long the run lasted.</param>
+    /// <returns>A stopped outcome.</returns>
+    private TestRunOutcome ReportStoppedRun(
+        TestRunContext context,
+        DotnetCommandResult result,
+        TimeSpan duration)
+    {
+        var stopReason = ResolveStopReason(result);
+
+        StatusText = stopReason switch
+        {
+            RunStopReason.ApplicationClosed => "Test run stopped: application closed",
+            RunStopReason.TimedOut => "Test run timed out",
+            _ => "Test run stopped"
+        };
+
+        LastRunState = TestRunState.None;
+        _TestRunReporter.ReportStopped(context, stopReason, duration);
+
+        return new TestRunOutcome(result.ExitCode, WasStopped: true);
+    }
+
+    /// <summary>
+    /// Determines why a run ended early, preferring the reason observed by the command runner
+    /// over the one recorded when the user pressed Stop.
+    /// </summary>
+    /// <param name="result">Result reported by the command runner.</param>
+    /// <returns>The reason the run stopped.</returns>
+    private RunStopReason ResolveStopReason(DotnetCommandResult result)
+    {
+        if (result.WasAppUnderTestClosed)
+        {
+            return RunStopReason.ApplicationClosed;
+        }
+
+        if (result.TimedOut)
+        {
+            return RunStopReason.TimedOut;
+        }
+
+        return _RunStopReason == RunStopReason.None ? RunStopReason.User : _RunStopReason;
+    }
+
+    private DotnetCommandRequest CreateRequest(string arguments, TimeSpan? timeout, bool watchForClosedAppUnderTest)
+    {
+        return new DotnetCommandRequest
+        {
+            Arguments = arguments,
+            WorkingDirectory = Path.GetDirectoryName(TargetPath) ?? Environment.CurrentDirectory,
+            Timeout = timeout,
+            WatchForClosedAppUnderTest = watchForClosedAppUnderTest
+        };
+    }
+
+    private void CaptureOutput(List<string> capturedLines, string line)
+    {
+        lock (capturedLines)
+        {
+            capturedLines.Add(line);
+        }
+
+        AppendOutput(line);
+    }
+
+    #endregion
+
+    #region Stopping
+
+    /// <summary>
+    /// Requests cancellation of the in-progress run. The <c>dotnet</c> process and every
+    /// process it started are terminated so a hung or abandoned test cannot keep the runner
+    /// stuck in the running state.
+    /// </summary>
+    private void StopRun()
+    {
+        var runCancellation = _RunCancellation;
+
+        if (runCancellation is null || runCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        StatusText = "Stopping test run...";
+        AppendOutput("Stopping test run...");
+        _RunStopReason = RunStopReason.User;
+        runCancellation.Cancel();
+        StopCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanStopRun()
+    {
+        return IsRunning && _RunCancellation is { IsCancellationRequested: false };
+    }
+
+    #endregion
+
+    #region Selection
+
+    private void ClearSelection()
+    {
+        TestTree.ClearSelection();
+    }
+
+    private bool CanClearSelection()
+    {
+        return TestTree.HasSelectedMethods();
+    }
+
+    private void OnTestSelectionChanged(object? sender, EventArgs e)
+    {
+        RunSelectedCommand.NotifyCanExecuteChanged();
+        ClearSelectionCommand.NotifyCanExecuteChanged();
+    }
+
+    #endregion
+
+    #region Command availability
+
     private bool CanExecuteTestCommands()
     {
         return !IsRunning
@@ -927,444 +771,19 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             && File.Exists(TargetPath);
     }
 
-    private void ClearLog()
+    private bool CanExecuteRunSelected()
     {
-        while (_PendingOutputLines.TryDequeue(out _))
-        {
-        }
-
-        _OutputBuilder.Clear();
-        OutputLog = string.Empty;
+        return CanExecuteTestCommands() && TestTree.HasSelectedMethods();
     }
 
-    private static string EscapeFilterValue(string value)
+    private bool CanExecuteRunClassNode(TestClassNode classNode)
     {
-        return value.Replace("\"", "\\\"");
+        return CanExecuteTestCommands() && !string.IsNullOrWhiteSpace(classNode.ClassName);
     }
 
-    private static IEnumerable<string> ParseTests(IEnumerable<string> outputLines)
+    private bool CanExecuteRunMethodNode(TestMethodNode methodNode)
     {
-        var lines = outputLines.ToList();
-        var inTestSection = false;
-        var discoveredTests = new List<string>();
-
-        foreach (var line in lines)
-        {
-            if (line.Contains("The following Tests are available", StringComparison.OrdinalIgnoreCase))
-            {
-                inTestSection = true;
-                continue;
-            }
-
-            if (!inTestSection)
-            {
-                continue;
-            }
-
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
-
-            if (line.StartsWith("Test run", StringComparison.OrdinalIgnoreCase)
-                || line.StartsWith("Total tests", StringComparison.OrdinalIgnoreCase)
-                || line.StartsWith("Workload updates", StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-
-            var trimmed = line.Trim();
-
-            if (IsPotentialTestName(trimmed))
-            {
-                discoveredTests.Add(trimmed);
-            }
-        }
-
-        if (discoveredTests.Count > 0)
-        {
-            return discoveredTests;
-        }
-
-        return lines
-            .Select(static line => line.Trim())
-            .Where(IsPotentialTestName)
-            .ToList();
-    }
-
-    private static bool IsPotentialTestName(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
-        {
-            return false;
-        }
-
-        if (line.Contains(" -> ", StringComparison.Ordinal)
-            || line.Contains('\\')
-            || line.Contains(' ')
-            || line.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || line.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Test run", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Total tests", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Passed!", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Build", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Restore", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Workload", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("VSTest", StringComparison.OrdinalIgnoreCase)
-            || line.StartsWith("Starting", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return TestNameRegex().IsMatch(line);
-    }
-
-    private void RebuildTestTree(IEnumerable<TestDiscoveryEntry> testNames)
-    {
-        var grouped = testNames
-            .Where(static entry => !string.IsNullOrWhiteSpace(entry.ClassName))
-            .GroupBy(static entry => entry.ClassName, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(static group => group.Key, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        foreach (var existingClassNode in TestClasses)
-        {
-            existingClassNode.SelectionChanged -= OnNodeSelectionChanged;
-        }
-
-        TestClasses.Clear();
-
-        foreach (var group in grouped)
-        {
-            var classNode = new TestClassNode(group.Key);
-
-            foreach (var entry in group.OrderBy(static e => e.MethodName, StringComparer.OrdinalIgnoreCase))
-            {
-                var methodNode = new TestMethodNode(
-                    entry.MethodName,
-                    entry.FullyQualifiedName)
-                {
-                    Owner = classNode
-                };
-
-                classNode.Methods.Add(methodNode);
-            }
-
-            classNode.SelectionChanged += OnNodeSelectionChanged;
-            TestClasses.Add(classNode);
-        }
-
-        NotifyCommandStateChanged();
-    }
-
-    private async Task<List<TestDiscoveryEntry>> ResolveTestEntriesAsync(IReadOnlyCollection<string> discoveredTests)
-    {
-        var normalized = discoveredTests
-            .Select(static test => test.Trim())
-            .Where(static test => !string.IsNullOrWhiteSpace(test))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (normalized.Count == 0)
-        {
-            return [];
-        }
-
-        var hasFullyQualifiedNames = normalized.Any(static test => test.Contains('.'));
-
-        if (hasFullyQualifiedNames)
-        {
-            return normalized.Select(ToEntryFromFullyQualified).ToList();
-        }
-
-        var sourceIndex = await Task.Run(() => BuildSourceTestIndex(TargetPath));
-
-        if (sourceIndex.Count == 0)
-        {
-            return normalized.Select(ToFallbackEntry).ToList();
-        }
-
-        var methodsByName = sourceIndex
-            .GroupBy(static item => item.MethodName, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                static group => group.Key,
-                static group => new Queue<SourceTestMethod>(group.OrderBy(static method => method.ClassName, StringComparer.OrdinalIgnoreCase))
-            );
-
-        var resolvedEntries = new List<TestDiscoveryEntry>(normalized.Count);
-
-        foreach (var listedTest in normalized)
-        {
-            var methodKey = NormalizeListedMethodName(listedTest);
-
-            if (methodsByName.TryGetValue(methodKey, out var queue) && queue.Count > 0)
-            {
-                var matched = queue.Dequeue();
-                resolvedEntries.Add(new TestDiscoveryEntry(matched.ClassName, matched.MethodName, matched.FullyQualifiedName));
-                continue;
-            }
-
-            resolvedEntries.Add(ToFallbackEntry(listedTest));
-        }
-
-        return resolvedEntries;
-    }
-
-    private static TestDiscoveryEntry ToEntryFromFullyQualified(string fullyQualified)
-    {
-        var lastSeparatorIndex = fullyQualified.LastIndexOf('.');
-
-        if (lastSeparatorIndex <= 0 || lastSeparatorIndex == fullyQualified.Length - 1)
-        {
-            return ToFallbackEntry(fullyQualified);
-        }
-
-        var className = fullyQualified[..lastSeparatorIndex];
-        var methodName = fullyQualified[(lastSeparatorIndex + 1)..];
-        return new TestDiscoveryEntry(className, methodName, fullyQualified);
-    }
-
-    private static TestDiscoveryEntry ToFallbackEntry(string listedTest)
-    {
-        var firstSeparatorIndex = listedTest.IndexOf('_');
-        var className = firstSeparatorIndex > 0 ? listedTest[..firstSeparatorIndex] : "Ungrouped";
-        return new TestDiscoveryEntry(className, listedTest, listedTest);
-    }
-
-    private static string NormalizeListedMethodName(string listedTest)
-    {
-        var method = listedTest;
-        var openParenthesisIndex = method.IndexOf('(');
-
-        if (openParenthesisIndex > 0)
-        {
-            method = method[..openParenthesisIndex];
-        }
-
-        var lastSeparatorIndex = method.LastIndexOf('.');
-
-        if (lastSeparatorIndex >= 0 && lastSeparatorIndex < method.Length - 1)
-        {
-            method = method[(lastSeparatorIndex + 1)..];
-        }
-
-        return method.Trim();
-    }
-
-    private static List<SourceTestMethod> BuildSourceTestIndex(string targetPath)
-    {
-        var projectFiles = ResolveTargetProjectFiles(targetPath);
-        var discoveredMethods = new List<SourceTestMethod>();
-
-        foreach (var projectFile in projectFiles)
-        {
-            var projectDirectory = Path.GetDirectoryName(projectFile);
-
-            if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
-            {
-                continue;
-            }
-
-            foreach (var sourceFile in Directory.EnumerateFiles(projectDirectory, "*.cs", SearchOption.AllDirectories))
-            {
-                if (sourceFile.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase)
-                    || sourceFile.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                discoveredMethods.AddRange(ExtractTestsFromSourceFile(sourceFile));
-            }
-        }
-
-        return discoveredMethods;
-    }
-
-    private static List<string> ResolveTargetProjectFiles(string targetPath)
-    {
-        if (targetPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-        {
-            return [targetPath];
-        }
-
-        if (!targetPath.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || !File.Exists(targetPath))
-        {
-            return [];
-        }
-
-        var solutionDirectory = Path.GetDirectoryName(targetPath) ?? string.Empty;
-        var projectFiles = new List<string>();
-
-        foreach (var line in File.ReadLines(targetPath))
-        {
-            if (!line.Contains(".csproj", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var parts = line.Split(',');
-
-            if (parts.Length < 2)
-            {
-                continue;
-            }
-
-            var relativePath = parts[1].Trim().Trim('"').Replace('\\', Path.DirectorySeparatorChar);
-
-            if (!relativePath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var absolutePath = Path.GetFullPath(Path.Combine(solutionDirectory, relativePath));
-
-            if (File.Exists(absolutePath))
-            {
-                projectFiles.Add(absolutePath);
-            }
-        }
-
-        return projectFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static List<SourceTestMethod> ExtractTestsFromSourceFile(string sourceFile)
-    {
-        var methods = new List<SourceTestMethod>();
-        var sourceText = File.ReadAllText(sourceFile);
-        var tree = CSharpSyntaxTree.ParseText(sourceText);
-        var root = tree.GetRoot();
-
-        var methodDeclarations = root.DescendantNodes().OfType<MethodDeclarationSyntax>();
-
-        foreach (var method in methodDeclarations)
-        {
-            if (!HasTestAttribute(method))
-            {
-                continue;
-            }
-
-            var typeChain = method.Ancestors()
-                .OfType<TypeDeclarationSyntax>()
-                .Reverse()
-                .Select(static type => type.Identifier.Text)
-                .ToList();
-
-            if (typeChain.Count == 0)
-            {
-                continue;
-            }
-
-            var classPath = string.Join('.', typeChain);
-            var namespacePath = GetNamespacePath(method);
-            var fullyQualifiedClass = string.IsNullOrWhiteSpace(namespacePath)
-                ? classPath
-                : string.Concat(namespacePath, ".", classPath);
-
-            var methodName = method.Identifier.Text;
-
-            methods.Add(new SourceTestMethod(
-                fullyQualifiedClass,
-                methodName,
-                string.Concat(fullyQualifiedClass, ".", methodName)));
-        }
-
-        return methods;
-    }
-
-    private static bool HasTestAttribute(MethodDeclarationSyntax method)
-    {
-        var attributes = method.AttributeLists.SelectMany(static list => list.Attributes);
-
-        foreach (var attribute in attributes)
-        {
-            var name = attribute.Name.ToString();
-
-            if (name.EndsWith("TestMethod", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("DataTestMethod", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("Fact", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("Theory", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("Test", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("TestCase", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("TestCaseSource", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string GetNamespacePath(SyntaxNode node)
-    {
-        var namespaces = node.Ancestors()
-            .OfType<BaseNamespaceDeclarationSyntax>()
-            .Reverse()
-            .Select(static ns => ns.Name.ToString())
-            .ToList();
-
-        return string.Join('.', namespaces);
-    }
-
-    private sealed record TestDiscoveryEntry(string ClassName, string MethodName, string FullyQualifiedName);
-
-    private sealed record SourceTestMethod(string ClassName, string MethodName, string FullyQualifiedName);
-
-    private static IEnumerable<string> ReadConfigurations(string targetPath)
-    {
-        if (!targetPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-        {
-            return [];
-        }
-
-        try
-        {
-            var document = XDocument.Load(targetPath);
-
-            return document.Descendants()
-                .Where(element => element.Name.LocalName == "Configurations")
-                .SelectMany(element => (element.Value ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// Resolves the target path to select at startup, preferring a previously persisted
-    /// path (if it still exists on disk) over the default auto-discovery walk-up.
-    /// </summary>
-    private static string? ResolveInitialTargetPath(string? persistedTargetPath)
-    {
-        if (!string.IsNullOrWhiteSpace(persistedTargetPath) && File.Exists(persistedTargetPath))
-        {
-            return persistedTargetPath;
-        }
-
-        var currentDirectory = new DirectoryInfo(AppContext.BaseDirectory);
-
-        while (currentDirectory is not null)
-        {
-            var solutionPath = Path.Combine(currentDirectory.FullName, "CSM.UI.Tests.sln");
-
-            if (File.Exists(solutionPath))
-            {
-                return solutionPath;
-            }
-
-            var projectPath = Path.Combine(currentDirectory.FullName, "CSM.UI.Tests.csproj");
-
-            if (File.Exists(projectPath))
-            {
-                return projectPath;
-            }
-
-            currentDirectory = currentDirectory.Parent;
-        }
-
-        return null;
+        return CanExecuteTestCommands() && !string.IsNullOrWhiteSpace(methodNode.FullyQualifiedName);
     }
 
     private void NotifyCommandStateChanged()
@@ -1375,281 +794,25 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         ClearSelectionCommand.NotifyCanExecuteChanged();
         RunClassCommand.NotifyCanExecuteChanged();
         RunMethodCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
     }
 
-    private async Task<int> RunDotnetCommandAsync(string args, Action<string> onOutput, TimeSpan? timeout = null)
-    {
-        var processStartInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            Arguments = args,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(TargetPath) ?? Environment.CurrentDirectory
-        };
+    #endregion
 
-        using var process = new Process { StartInfo = processStartInfo };
-        process.Start();
-
-        var outputTask = ReadStreamAsync(process.StandardOutput, onOutput);
-        var errorTask = ReadStreamAsync(process.StandardError, onOutput);
-        var processTask = process.WaitForExitAsync();
-        var combinedTask = Task.WhenAll(outputTask, errorTask, processTask);
-
-        if (timeout.HasValue)
-        {
-            var completedTask = await Task.WhenAny(combinedTask, Task.Delay(timeout.Value));
-
-            if (!ReferenceEquals(completedTask, combinedTask))
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                catch
-                {
-                    // Best effort timeout stop.
-                }
-
-                onOutput($"Command timed out after {timeout.Value.TotalSeconds:0} seconds.");
-                return -1;
-            }
-        }
-
-        await combinedTask;
-
-        return process.ExitCode;
-    }
-
-    private static async Task ReadStreamAsync(StreamReader reader, Action<string> onOutput)
-    {
-        while (true)
-        {
-            var line = await reader.ReadLineAsync();
-
-            if (line is null)
-            {
-                break;
-            }
-
-            onOutput(line);
-        }
-    }
+    #region Output
 
     private void AppendOutput(string line)
     {
-        _PendingOutputLines.Enqueue(line);
-        ScheduleOutputFlush();
+        _OutputLogBuffer.Append(line);
     }
 
-    private void ScheduleOutputFlush()
+    private void OnOutputLogBufferChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (Interlocked.Exchange(ref _IsOutputFlushScheduled, 1) == 1)
+        if (e.PropertyName == nameof(OutputLogBuffer.Text))
         {
-            return;
-        }
-
-        _ = _UiDispatcher.BeginInvoke(FlushPendingOutputLines);
-    }
-
-    private void FlushPendingOutputLines()
-    {
-        try
-        {
-            var wroteLine = false;
-
-            while (_PendingOutputLines.TryDequeue(out var line))
-            {
-                if (_OutputBuilder.Length > 0)
-                {
-                    _OutputBuilder.AppendLine();
-                }
-
-                _OutputBuilder.Append(line);
-                wroteLine = true;
-            }
-
-            if (wroteLine)
-            {
-                OutputLog = _OutputBuilder.ToString();
-            }
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _IsOutputFlushScheduled, 0);
-
-            if (!_PendingOutputLines.IsEmpty)
-            {
-                ScheduleOutputFlush();
-            }
+            OnPropertyChanged(nameof(OutputLog));
         }
     }
 
-    private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-        {
-            return false;
-        }
-
-        field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
-    }
-}
-
-public enum TestRunState
-{
-    None,
-    Running,
-    Passed,
-    Failed
-}
-
-public sealed class TestClassNode : INotifyPropertyChanged
-{
-    private TestRunState _RunState;
-    private bool? _IsSelected = false;
-    private bool _IsUpdatingSelection;
-
-    public TestClassNode(string className)
-    {
-        ClassName = className;
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public event EventHandler? SelectionChanged;
-
-    public string ClassName { get; }
-
-    public TestRunState RunState
-    {
-        get => _RunState;
-        set
-        {
-            if (_RunState == value)
-            {
-                return;
-            }
-
-            _RunState = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RunState)));
-        }
-    }
-
-    public bool? IsSelected
-    {
-        get => _IsSelected;
-        set => ApplySelectionToMethods(value ?? false);
-    }
-
-    public ObservableCollection<TestMethodNode> Methods { get; } = [];
-
-    public void NotifyMethodSelectionChanged()
-    {
-        if (_IsUpdatingSelection)
-        {
-            return;
-        }
-
-        RefreshSelectionState();
-    }
-
-    private void ApplySelectionToMethods(bool isSelected)
-    {
-        _IsUpdatingSelection = true;
-
-        foreach (var methodNode in Methods)
-        {
-            methodNode.IsSelected = isSelected;
-        }
-
-        _IsUpdatingSelection = false;
-        RefreshSelectionState();
-    }
-
-    private void RefreshSelectionState()
-    {
-        bool? newState;
-
-        if (Methods.Count == 0 || Methods.All(static methodNode => !methodNode.IsSelected))
-        {
-            newState = false;
-        }
-        else if (Methods.All(static methodNode => methodNode.IsSelected))
-        {
-            newState = true;
-        }
-        else
-        {
-            newState = null;
-        }
-
-        if (_IsSelected != newState)
-        {
-            _IsSelected = newState;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
-        }
-
-        SelectionChanged?.Invoke(this, EventArgs.Empty);
-    }
-}
-
-public sealed class TestMethodNode : INotifyPropertyChanged
-{
-    private TestRunState _RunState;
-    private bool _IsSelected;
-
-    public TestMethodNode(
-        string methodName,
-        string fullyQualifiedName)
-    {
-        MethodName = methodName;
-        FullyQualifiedName = fullyQualifiedName;
-    }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public string MethodName { get; }
-
-    public string FullyQualifiedName { get; }
-
-    public TestClassNode? Owner { get; set; }
-
-    public TestRunState RunState
-    {
-        get => _RunState;
-        set
-        {
-            if (_RunState == value)
-            {
-                return;
-            }
-
-            _RunState = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RunState)));
-        }
-    }
-
-    public bool IsSelected
-    {
-        get => _IsSelected;
-        set
-        {
-            if (_IsSelected == value)
-            {
-                return;
-            }
-
-            _IsSelected = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
-            Owner?.NotifyMethodSelectionChanged();
-        }
-    }
+    #endregion
 }

@@ -67,6 +67,16 @@ versioned section when updating the application version or creating a tag.
    - Right-click a class or test method to run it directly.
 5. Review pass/fail status in the test tree and command output in the log panel.
 
+Select **Stop** to end a run that is in progress. The `dotnet` process and every process it
+started are terminated, so an application launched by a UI test is closed too. Tests that did
+not finish return to the "not run" state rather than being reported as failures.
+
+A run that drives a desktop application is also stopped automatically if that application is
+closed. The runner watches the applications started by `dotnet test`, and once the last one
+has been gone for 30 seconds it ends the run instead of waiting for the test framework to
+keep polling for windows that will never reappear. This check only applies after an
+application window has been seen, so it never interferes with non-UI tests.
+
 The runner executes standard `dotnet test` commands with the selected configuration. Selected tests use `FullyQualifiedName` filters, so their test adapters must support the standard VSTest filter syntax.
 
 The last selected target path and build configuration are persisted automatically (see
@@ -104,8 +114,11 @@ target path or selected configuration changes — no manual save action is requi
 The application logs to a rolling daily file at:
 
 ```
-%APPDATA%\DotNetTestRunner\logs\testrunner-<date>.log
+<application directory>\logs\testrunner-<date>.log
 ```
+
+The application directory is the directory containing the running executable. The `logs`
+folder is created automatically at startup if it does not exist.
 
 Each entry records a timestamp, log level, and the Windows user account that produced it, for
 example:
@@ -160,12 +173,14 @@ See [`ILoggingSettingsProvider`](Application/Abstractions/ILoggingSettingsProvid
 This project follows a layered architecture. See [AGENTS.md](AGENTS.md) for the full
 folder-structure and styling convention reference.
 
-- `MainWindow.xaml` / `.cs`: WPF main window (custom title bar/header, UI layout, minimal code-behind).
-- `Application/Abstractions/`: service interfaces (`ISettingsService`, `ILoggingSettingsProvider`, `ITestRunLogger`).
-- `Domain/Models/`: serializable value models (`TestRunnerSettings`, `LoggingSettings`).
-- `Infrastructure/Services/`: concrete service implementations (`SettingsService`, `LoggingSettingsProvider`).
+- `MainWindow.xaml` / `.cs`: WPF main window (custom title bar/header, UI layout, minimal code-behind plus the view-model composition root).
+- `Application/Abstractions/`: service interfaces (`ISettingsService`, `ILoggingSettingsProvider`, `ITestRunLogger`, `IDotnetCommandRunner`, `ITestDiscoveryService`, `ISourceTestIndexer`, `ITestOutputParser`, `ITestTargetService`, `IProcessTreeInspector`).
+- `Domain/Models/`: value models (`TestRunnerSettings`, `LoggingSettings`, `TestDiscoveryEntry`, `SourceTestMethod`, `TestFailureDetail`, `DotnetCommandRequest`, `DotnetCommandResult`, `TestRunOutcome`, `RunStopReason`).
+- `Domain/Services/`: dependency-free rules (`TestNameMatcher` for matching reported test names, `TestFilterBuilder` for `--filter` expressions).
+- `Infrastructure/Services/`: concrete service implementations (`SettingsService`, `LoggingSettingsProvider`, `DotnetCommandRunner`, `AppUnderTestWatchdog`, `TestOutputParser`, `SourceTestIndexer`, `TestDiscoveryService`, `TestTargetService`, `ProcessTreeInspector`).
 - `Infrastructure/Logging/`: Serilog bootstrap and `ITestRunLogger` implementation (`AppLoggerBootstrapper`, `TestRunLogger`).
-- `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel`).
+- `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel` orchestration, `TestTreeViewModel`, `TestClassNode`, `TestMethodNode`, `TestRunState`, `OutputLogBuffer`, `ObservableObject` base).
+- `Presentation/Reporting/`: run-log reporting (`TestRunReporter`, `TestRunContext`).
 - `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
 - `Presentation/Behaviors/`: reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log).
 - `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.

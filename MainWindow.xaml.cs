@@ -2,8 +2,10 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using DotNetTestRunner.Application.Abstractions;
 using DotNetTestRunner.Infrastructure.Logging;
 using DotNetTestRunner.Infrastructure.Services;
+using DotNetTestRunner.Presentation.Reporting;
 using DotNetTestRunner.Presentation.ViewModels;
 
 namespace DotNetTestRunner;
@@ -31,10 +33,30 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         var testRunLogger = (System.Windows.Application.Current as App)?.TestRunLogger ?? new TestRunLogger();
-        _MainWindowViewModel = new MainWindowViewModel(new SettingsService(), testRunLogger);
+        _MainWindowViewModel = CreateViewModel(testRunLogger);
         DataContext = _MainWindowViewModel;
 
         StateChanged += MainWindow_StateChanged;
+    }
+
+    /// <summary>
+    /// Composes the main window view model. This application has no dependency injection
+    /// container, so the service graph is built here.
+    /// </summary>
+    /// <param name="testRunLogger">Logger shared with the application host.</param>
+    /// <returns>The configured view model.</returns>
+    private static MainWindowViewModel CreateViewModel(ITestRunLogger testRunLogger)
+    {
+        var processTreeInspector = new ProcessTreeInspector();
+        var testOutputParser = new TestOutputParser();
+
+        return new MainWindowViewModel(
+            new SettingsService(),
+            new TestRunReporter(testRunLogger, testOutputParser),
+            new DotnetCommandRunner(processTreeInspector),
+            new TestDiscoveryService(new SourceTestIndexer()),
+            testOutputParser,
+            new TestTargetService());
     }
 
     /// <summary>

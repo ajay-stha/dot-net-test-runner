@@ -12,9 +12,12 @@ namespace DotNetTestRunner.Infrastructure.Logging;
 public static class AppLoggerBootstrapper
 {
     private static readonly string LOG_DIRECTORY = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "DotNetTestRunner",
+        AppContext.BaseDirectory,
         "logs");
+
+    private static readonly string LOG_FILE_PATH = Path.Combine(
+        LOG_DIRECTORY,
+        "testrunner-.log");
 
     private const string OUTPUT_TEMPLATE =
         "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{Level:u3}] [User:{User}] {Message:lj}{NewLine}{Exception}";
@@ -32,7 +35,7 @@ public static class AppLoggerBootstrapper
             .Enrich.WithProperty("User", Environment.UserName)
             .Enrich.WithProperty("Machine", Environment.MachineName)
             .WriteTo.File(
-                Path.Combine(LOG_DIRECTORY, "testrunner-.log"),
+                LOG_FILE_PATH,
                 rollingInterval: ParseRollingInterval(settings.RollingInterval),
                 retainedFileCountLimit: settings.RetainedFileCountLimit,
                 fileSizeLimitBytes: settings.FileSizeLimitBytes,

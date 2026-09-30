@@ -127,16 +127,27 @@
                         Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                         Margin="0,0,6,0"
                         VerticalAlignment="Center">
-                        <Ellipse
+                        <Viewbox
                             x:Name="ClassNotRunIcon"
                             Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Fill="Transparent"
-                            Stroke="{StaticResource SecondaryTextBrush}"
-                            StrokeThickness="{Binding DataContext.TreeIconStrokeThickness, Source={x:Reference RootWindow}}"
-                            Visibility="Visible" />
+                            Stretch="Uniform"
+                            Visibility="Visible">
+                            <Canvas Width="14" Height="14">
+                                <Path Data="M 7 1 L 13 7 L 7 13 L 1 7 Z"
+                                      Fill="Transparent"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeLineJoin="Round"
+                                      StrokeThickness="1.4" />
+                                <Path Data="M 7 4.2 L 7 8 M 7 10.1 L 7 10.2"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeEndLineCap="Round"
+                                      StrokeStartLineCap="Round"
+                                      StrokeThickness="1.6" />
+                            </Canvas>
+                        </Viewbox>
                         <Viewbox x:Name="ClassCheckIcon"
                                  Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                                  Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
@@ -249,16 +260,27 @@
                         Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                         Margin="0,0,6,0"
                         VerticalAlignment="Center">
-                        <Ellipse
+                        <Viewbox
                             x:Name="MethodNotRunIcon"
                             Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Fill="Transparent"
-                            Stroke="{StaticResource SecondaryTextBrush}"
-                            StrokeThickness="{Binding DataContext.TreeIconStrokeThickness, Source={x:Reference RootWindow}}"
-                            Visibility="Visible" />
+                            Stretch="Uniform"
+                            Visibility="Visible">
+                            <Canvas Width="14" Height="14">
+                                <Path Data="M 7 1 L 13 7 L 7 13 L 1 7 Z"
+                                      Fill="Transparent"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeLineJoin="Round"
+                                      StrokeThickness="1.4" />
+                                <Path Data="M 7 4.2 L 7 8 M 7 10.1 L 7 10.2"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeEndLineCap="Round"
+                                      StrokeStartLineCap="Round"
+                                      StrokeThickness="1.6" />
+                            </Canvas>
+                        </Viewbox>
                         <Viewbox x:Name="MethodCheckIcon"
                                  Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                                  Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
@@ -468,6 +490,8 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="10" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
@@ -521,7 +545,26 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="6" Command="{Binding ClearSelectionCommand}">
+                <Button
+                    Grid.Column="6"
+                    Command="{Binding StopCommand}"
+                    ToolTip="Stop the running tests and close any applications they started">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Foreground="{StaticResource DangerBrush}"
+                            Text="&#xE71A;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Foreground="{StaticResource DangerBrush}"
+                            Text="Stop" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="8" Command="{Binding ClearSelectionCommand}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock
                             Margin="0,0,6,0"
@@ -533,7 +576,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="8" Command="{Binding ClearLogCommand}">
+                <Button Grid.Column="10" Command="{Binding ClearLogCommand}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock
                             Margin="0,0,6,0"

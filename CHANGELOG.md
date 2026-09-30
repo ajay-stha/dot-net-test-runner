@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [1.0.2] - 2026-09-30
+
+### Added
+
+- Added a **Stop** button that ends an in-progress test discovery or run, terminating the
+  `dotnet` process and every process it started (including applications launched by UI
+  tests). Tests that did not finish return to the "not run" state instead of being reported
+  as failures.
+- A run that drives a desktop application now stops automatically when that application is
+  closed. After the last application started by the run has been gone for 30 seconds, the run
+  ends instead of hanging until it is stopped by hand.
+
+### Changed
+
+- Store rolling application log files in a `logs` folder inside the directory containing the
+  running executable.
+- Show a diagnostic rhombus-with-exclamation icon for tests that have not been run yet,
+  replacing the previous empty circle.
+
+### Fixed
+
+- A run no longer stays stuck on "Running" when a process started by the tests outlives
+  `dotnet test`. Applications launched by UI tests inherit the redirected output pipes, so
+  the output readers never reached end of stream and the run was never observed as finished,
+  leaving every command disabled until the runner was restarted. The run now completes once
+  the `dotnet` process exits, draining any remaining output within a short grace period.
+- **Run All** now marks each test with its own result. Previously a single failing test made
+  the whole tree show as failed, because the run's overall exit code was applied to every
+  class and method instead of the per-test results parsed from the `dotnet test` output.
+
 ## [1.0.1-beta1] - 2026-09-28
 
 ### Added
