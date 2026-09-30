@@ -8,6 +8,7 @@ using DotNetTestRunner.Application.Abstractions;
 using DotNetTestRunner.Domain.Models;
 using DotNetTestRunner.Domain.Services;
 using DotNetTestRunner.Presentation.Commands;
+using DotNetTestRunner.Presentation.Reporting;
 using Microsoft.Win32;
 
 namespace DotNetTestRunner.Presentation.ViewModels;
@@ -46,7 +47,7 @@ public sealed class MainWindowViewModel : ObservableObject
     #region Fields
 
     private readonly ISettingsService _SettingsService;
-    private readonly ITestRunLogger _TestRunLogger;
+    private readonly TestRunReporter _TestRunReporter;
     private readonly IDotnetCommandRunner _DotnetCommandRunner;
     private readonly ITestDiscoveryService _TestDiscoveryService;
     private readonly ITestOutputParser _TestOutputParser;
@@ -70,14 +71,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel(
         ISettingsService settingsService,
-        ITestRunLogger testRunLogger,
+        TestRunReporter testRunReporter,
         IDotnetCommandRunner dotnetCommandRunner,
         ITestDiscoveryService testDiscoveryService,
         ITestOutputParser testOutputParser,
         ITestTargetService testTargetService)
     {
         _SettingsService = settingsService;
-        _TestRunLogger = testRunLogger;
+        _TestRunReporter = testRunReporter;
         _DotnetCommandRunner = dotnetCommandRunner;
         _TestDiscoveryService = testDiscoveryService;
         _TestOutputParser = testOutputParser;
@@ -550,8 +551,9 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         TestTreeViewModel.MarkRunning(methods, classes);
 
+        var context = new TestRunContext(header, TargetPath, SelectedConfiguration);
         var capturedLines = new List<string>();
-        var outcome = await RunTestsAsync(filter, header, capturedLines);
+        var outcome = await RunTestsAsync(context, filter, capturedLines);
 
         // An interrupted run reports no per-test results, so its tests must be cleared rather
         // than marked failed.
@@ -565,18 +567,21 @@ public sealed class MainWindowViewModel : ObservableObject
 
         TestTreeViewModel.ApplyResults(methods, failedNames, outcome.ExitCode);
         TestTreeViewModel.UpdateClassStates(classes);
-        LogRunSummary(header, methods, capturedLines);
+        _TestRunReporter.ReportSummary(context, methods, capturedLines);
     }
 
     /// <summary>
     /// Invokes <c>dotnet test</c> and translates the result into a run outcome, updating
     /// status text and writing the run log entries.
     /// </summary>
+    /// <param name="context">Describes the run being carried out.</param>
     /// <param name="filter">Test filter, or <see langword="null"/> to run every test.</param>
-    /// <param name="header">Description of the run.</param>
     /// <param name="capturedLines">Receives every line of console output.</param>
     /// <returns>The outcome of the run.</returns>
-    private async Task<TestRunOutcome> RunTestsAsync(string? filter, string header, List<string> capturedLines)
+    private async Task<TestRunOutcome> RunTestsAsync(
+        TestRunContext context,
+        string? filter,
+        List<string> capturedLines)
     {
         IsRunning = true;
         LastRunState = TestRunState.Running;
@@ -586,18 +591,15 @@ public sealed class MainWindowViewModel : ObservableObject
         _RunStopReason = RunStopReason.None;
         StopCommand.NotifyCanExecuteChanged();
 
-        var targetPath = TargetPath;
-        var configuration = SelectedConfiguration;
         var stopwatch = Stopwatch.StartNew();
-
-        _TestRunLogger.LogTestRunStarted(header, targetPath, configuration, filter);
+        _TestRunReporter.ReportStarted(context, filter);
 
         try
         {
             StatusText = "Running tests...";
-            AppendOutput($"{Environment.NewLine}--- {header} ({configuration}) ---");
+            AppendOutput($"{Environment.NewLine}--- {context.Header} ({context.Configuration}) ---");
 
-            var arguments = $"test \"{targetPath}\" -c {configuration} --nologo";
+            var arguments = $"test \"{context.TargetPath}\" -c {context.Configuration} --nologo";
 
             if (!string.IsNullOrWhiteSpace(filter))
             {
@@ -613,12 +615,12 @@ public sealed class MainWindowViewModel : ObservableObject
 
             if (runCancellation.IsCancellationRequested || result.TimedOut)
             {
-                return ReportStoppedRun(header, targetPath, configuration, result, stopwatch.Elapsed);
+                return ReportStoppedRun(context, result, stopwatch.Elapsed);
             }
 
             StatusText = result.ExitCode == 0 ? "Test run completed" : "Test run failed";
             LastRunState = result.ExitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
-            _TestRunLogger.LogTestRunCompleted(header, targetPath, configuration, result.ExitCode, stopwatch.Elapsed);
+            _TestRunReporter.ReportCompleted(context, result.ExitCode, stopwatch.Elapsed);
 
             return new TestRunOutcome(result.ExitCode, WasStopped: false);
         }
@@ -627,7 +629,7 @@ public sealed class MainWindowViewModel : ObservableObject
             AppendOutput($"Test run failed unexpectedly: {ex.Message}");
             StatusText = "Test run failed";
             LastRunState = TestRunState.Failed;
-            _TestRunLogger.LogTestRunError(header, targetPath, configuration, ex);
+            _TestRunReporter.ReportError(context, ex);
 
             return new TestRunOutcome(-1, WasStopped: false);
         }
@@ -642,16 +644,12 @@ public sealed class MainWindowViewModel : ObservableObject
     /// Records a run that ended before all of its tests reported, distinguishing a run the
     /// user stopped from one abandoned because the application under test was closed.
     /// </summary>
-    /// <param name="header">Description of the run.</param>
-    /// <param name="targetPath">Target the run used.</param>
-    /// <param name="configuration">Configuration the run used.</param>
+    /// <param name="context">Describes the run that was stopped.</param>
     /// <param name="result">Result reported by the command runner.</param>
     /// <param name="duration">How long the run lasted.</param>
     /// <returns>A stopped outcome.</returns>
     private TestRunOutcome ReportStoppedRun(
-        string header,
-        string targetPath,
-        string configuration,
+        TestRunContext context,
         DotnetCommandResult result,
         TimeSpan duration)
     {
@@ -665,7 +663,7 @@ public sealed class MainWindowViewModel : ObservableObject
         };
 
         LastRunState = TestRunState.None;
-        _TestRunLogger.LogTestRunStopped(header, targetPath, configuration, duration, DescribeStopReason(stopReason));
+        _TestRunReporter.ReportStopped(context, stopReason, duration);
 
         return new TestRunOutcome(result.ExitCode, WasStopped: true);
     }
@@ -689,68 +687,6 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         return _RunStopReason == RunStopReason.None ? RunStopReason.User : _RunStopReason;
-    }
-
-    private static string DescribeStopReason(RunStopReason reason)
-    {
-        return reason switch
-        {
-            RunStopReason.ApplicationClosed => "Application under test closed",
-            RunStopReason.TimedOut => "Timed out",
-            RunStopReason.User => "Stopped by user",
-            _ => "Stopped"
-        };
-    }
-
-    /// <summary>
-    /// Logs the pass/fail counts for a completed run and, for each failed test, the error
-    /// message and stack trace extracted from the captured output when available.
-    /// </summary>
-    /// <param name="header">Description of the run.</param>
-    /// <param name="methods">The tests that were run.</param>
-    /// <param name="capturedLines">Console output captured during the run.</param>
-    private void LogRunSummary(
-        string header,
-        IReadOnlyCollection<TestMethodNode> methods,
-        IReadOnlyCollection<string> capturedLines)
-    {
-        var passedCount = methods.Count(static methodNode => methodNode.RunState == TestRunState.Passed);
-        var failedMethods = methods.Where(static methodNode => methodNode.RunState == TestRunState.Failed).ToList();
-        var failureDetails = failedMethods.Count > 0
-            ? _TestOutputParser.ParseFailureDetails(capturedLines)
-            : new Dictionary<string, TestFailureDetail>();
-
-        var failedTests = failedMethods
-            .Select(methodNode =>
-            {
-                var details = FindFailureDetail(methodNode, failureDetails);
-                return new FailedTestDetail(methodNode.FullyQualifiedName, details.ErrorMessage, details.StackTrace);
-            })
-            .ToList();
-
-        _TestRunLogger.LogTestRunSummary(header, passedCount, failedMethods.Count, failedTests);
-    }
-
-    /// <summary>
-    /// Finds the failure captured for a test, matching by the raw names reported in the
-    /// console output.
-    /// </summary>
-    /// <param name="methodNode">Failed test.</param>
-    /// <param name="failureDetails">Failures keyed by reported name.</param>
-    /// <returns>The matching detail, or an empty detail when none was captured.</returns>
-    private static TestFailureDetail FindFailureDetail(
-        TestMethodNode methodNode,
-        IReadOnlyDictionary<string, TestFailureDetail> failureDetails)
-    {
-        foreach (var (reportedName, detail) in failureDetails)
-        {
-            if (TestNameMatcher.Matches(reportedName, methodNode.FullyQualifiedName, methodNode.MethodName))
-            {
-                return detail;
-            }
-        }
-
-        return TestFailureDetail.Empty;
     }
 
     private DotnetCommandRequest CreateRequest(string arguments, TimeSpan? timeout, bool watchForClosedAppUnderTest)

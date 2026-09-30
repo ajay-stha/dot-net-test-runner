@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using DotNetTestRunner.Application.Abstractions;
 using DotNetTestRunner.Infrastructure.Logging;
 using DotNetTestRunner.Infrastructure.Services;
+using DotNetTestRunner.Presentation.Reporting;
 using DotNetTestRunner.Presentation.ViewModels;
 
 namespace DotNetTestRunner;
@@ -47,13 +48,14 @@ public partial class MainWindow : Window
     private static MainWindowViewModel CreateViewModel(ITestRunLogger testRunLogger)
     {
         var processTreeInspector = new ProcessTreeInspector();
+        var testOutputParser = new TestOutputParser();
 
         return new MainWindowViewModel(
             new SettingsService(),
-            testRunLogger,
+            new TestRunReporter(testRunLogger, testOutputParser),
             new DotnetCommandRunner(processTreeInspector),
             new TestDiscoveryService(new SourceTestIndexer()),
-            new TestOutputParser(),
+            testOutputParser,
             new TestTargetService());
     }
 

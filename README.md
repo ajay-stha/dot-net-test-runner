@@ -173,12 +173,14 @@ See [`ILoggingSettingsProvider`](Application/Abstractions/ILoggingSettingsProvid
 This project follows a layered architecture. See [AGENTS.md](AGENTS.md) for the full
 folder-structure and styling convention reference.
 
-- `MainWindow.xaml` / `.cs`: WPF main window (custom title bar/header, UI layout, minimal code-behind).
-- `Application/Abstractions/`: service interfaces (`ISettingsService`, `ILoggingSettingsProvider`, `ITestRunLogger`).
-- `Domain/Models/`: serializable value models (`TestRunnerSettings`, `LoggingSettings`).
-- `Infrastructure/Services/`: concrete service implementations (`SettingsService`, `LoggingSettingsProvider`).
+- `MainWindow.xaml` / `.cs`: WPF main window (custom title bar/header, UI layout, minimal code-behind plus the view-model composition root).
+- `Application/Abstractions/`: service interfaces (`ISettingsService`, `ILoggingSettingsProvider`, `ITestRunLogger`, `IDotnetCommandRunner`, `ITestDiscoveryService`, `ISourceTestIndexer`, `ITestOutputParser`, `ITestTargetService`, `IProcessTreeInspector`).
+- `Domain/Models/`: value models (`TestRunnerSettings`, `LoggingSettings`, `TestDiscoveryEntry`, `SourceTestMethod`, `TestFailureDetail`, `DotnetCommandRequest`, `DotnetCommandResult`, `TestRunOutcome`, `RunStopReason`).
+- `Domain/Services/`: dependency-free rules (`TestNameMatcher` for matching reported test names, `TestFilterBuilder` for `--filter` expressions).
+- `Infrastructure/Services/`: concrete service implementations (`SettingsService`, `LoggingSettingsProvider`, `DotnetCommandRunner`, `AppUnderTestWatchdog`, `TestOutputParser`, `SourceTestIndexer`, `TestDiscoveryService`, `TestTargetService`, `ProcessTreeInspector`).
 - `Infrastructure/Logging/`: Serilog bootstrap and `ITestRunLogger` implementation (`AppLoggerBootstrapper`, `TestRunLogger`).
-- `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel`).
+- `Presentation/ViewModels/`: MVVM view models (`MainWindowViewModel` orchestration, `TestTreeViewModel`, `TestClassNode`, `TestMethodNode`, `TestRunState`, `OutputLogBuffer`, `ObservableObject` base).
+- `Presentation/Reporting/`: run-log reporting (`TestRunReporter`, `TestRunContext`).
 - `Presentation/Commands/`: reusable `ICommand` implementations (`RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>`).
 - `Presentation/Behaviors/`: reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log).
 - `Styles/Styles.xaml`: shared brushes, converters, and control styles, merged at the application level.
