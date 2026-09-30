@@ -74,4 +74,12 @@ public interface ITestRunLogger
     /// <param name="failedCount">The number of tests that failed.</param>
     /// <param name="failedTests">The failed tests and their error details, when available.</param>
     void LogTestRunSummary(string header, int passedCount, int failedCount, IReadOnlyCollection<FailedTestDetail> failedTests);
+
+    /// <summary>
+    /// Logs the result of a single test as soon as the run reports it, so a long run can be
+    /// followed while it is still in progress.
+    /// </summary>
+    /// <param name="header">A short description of the run.</param>
+    /// <param name="progress">The reported test, its result, and how far the run has got.</param>
+    void LogTestRunProgress(string header, TestRunProgress progress);
 }

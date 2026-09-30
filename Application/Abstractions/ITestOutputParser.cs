@@ -27,4 +27,14 @@ public interface ITestOutputParser
     /// <param name="outputLines">Captured console output.</param>
     /// <returns>Failure details keyed by the raw reported test name.</returns>
     IReadOnlyDictionary<string, TestFailureDetail> ParseFailureDetails(IEnumerable<string> outputLines);
+
+    /// <summary>
+    /// Reads the result a single line reports, so a run can be followed as its output
+    /// arrives rather than only once it has finished.
+    /// </summary>
+    /// <param name="outputLine">One line of console output.</param>
+    /// <returns>
+    /// The reported result, or <see langword="null"/> when the line does not report one.
+    /// </returns>
+    TestResultNotice? ReadResultNotice(string outputLine);
 }

@@ -117,6 +117,34 @@ public sealed class TestRunLogger : ITestRunLogger
         }
     }
 
+    /// <inheritdoc />
+    public void LogTestRunProgress(string header, TestRunProgress progress)
+    {
+        const string TEMPLATE = "TEST {Outcome} | Run={Run} | Test={Test} | Progress={Completed}/{Total}";
+
+        var outcome = progress.Outcome.ToString().ToUpperInvariant();
+
+        if (progress.Outcome == TestOutcome.Failed)
+        {
+            _Logger.Warning(
+                TEMPLATE,
+                outcome,
+                FormatValue(header),
+                FormatValue(progress.ReportedName),
+                progress.CompletedCount,
+                progress.TotalCount);
+            return;
+        }
+
+        _Logger.Information(
+            TEMPLATE,
+            outcome,
+            FormatValue(header),
+            FormatValue(progress.ReportedName),
+            progress.CompletedCount,
+            progress.TotalCount);
+    }
+
     private static string FormatValue(string value)
     {
         return value
