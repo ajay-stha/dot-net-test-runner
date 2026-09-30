@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [1.0.2] - 2026-09-30
+
 ### Added
 
 - Added a **Stop** button that ends an in-progress test discovery or run, terminating the
