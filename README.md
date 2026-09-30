@@ -104,10 +104,11 @@ target path or selected configuration changes — no manual save action is requi
 The application logs to a rolling daily file at:
 
 ```
-<application directory>\testrunner-<date>.log
+<application directory>\logs\testrunner-<date>.log
 ```
 
-The application directory is the directory containing the running executable.
+The application directory is the directory containing the running executable. The `logs`
+folder is created automatically at startup if it does not exist.
 
 Each entry records a timestamp, log level, and the Windows user account that produced it, for
 example:

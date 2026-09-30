@@ -11,8 +11,12 @@ namespace DotNetTestRunner.Infrastructure.Logging;
 /// </summary>
 public static class AppLoggerBootstrapper
 {
-    private static readonly string LOG_FILE_PATH = Path.Combine(
+    private static readonly string LOG_DIRECTORY = Path.Combine(
         AppContext.BaseDirectory,
+        "logs");
+
+    private static readonly string LOG_FILE_PATH = Path.Combine(
+        LOG_DIRECTORY,
         "testrunner-.log");
 
     private const string OUTPUT_TEMPLATE =
@@ -24,6 +28,8 @@ public static class AppLoggerBootstrapper
     /// <param name="settings">The log level and rolling file behavior to apply.</param>
     public static void Initialize(LoggingSettings settings)
     {
+        Directory.CreateDirectory(LOG_DIRECTORY);
+
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Is(ParseLogLevel(settings.MinimumLevel))
             .Enrich.WithProperty("User", Environment.UserName)

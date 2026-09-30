@@ -6,7 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Store rolling application log files in the directory containing the running executable.
+- Store rolling application log files in a `logs` folder inside the directory containing the
+  running executable.
 - Show a diagnostic rhombus-with-exclamation icon for tests that have not been run yet,
   replacing the previous empty circle.
 
