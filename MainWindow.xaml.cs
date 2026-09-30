@@ -31,7 +31,7 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         var testRunLogger = (System.Windows.Application.Current as App)?.TestRunLogger ?? new TestRunLogger();
-        _MainWindowViewModel = new MainWindowViewModel(new SettingsService(), testRunLogger);
+        _MainWindowViewModel = new MainWindowViewModel(new SettingsService(), testRunLogger, new ProcessTreeInspector());
         DataContext = _MainWindowViewModel;
 
         StateChanged += MainWindow_StateChanged;

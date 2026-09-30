@@ -71,6 +71,12 @@ Select **Stop** to end a run that is in progress. The `dotnet` process and every
 started are terminated, so an application launched by a UI test is closed too. Tests that did
 not finish return to the "not run" state rather than being reported as failures.
 
+A run that drives a desktop application is also stopped automatically if that application is
+closed. The runner watches the applications started by `dotnet test`, and once the last one
+has been gone for 30 seconds it ends the run instead of waiting for the test framework to
+keep polling for windows that will never reappear. This check only applies after an
+application window has been seen, so it never interferes with non-UI tests.
+
 The runner executes standard `dotnet test` commands with the selected configuration. Selected tests use `FullyQualifiedName` filters, so their test adapters must support the standard VSTest filter syntax.
 
 The last selected target path and build configuration are persisted automatically (see

@@ -10,6 +10,9 @@ All notable changes to this project are documented in this file.
   `dotnet` process and every process it started (including applications launched by UI
   tests). Tests that did not finish return to the "not run" state instead of being reported
   as failures.
+- A run that drives a desktop application now stops automatically when that application is
+  closed. After the last application started by the run has been gone for 30 seconds, the run
+  ends instead of hanging until it is stopped by hand.
 
 ### Changed
 

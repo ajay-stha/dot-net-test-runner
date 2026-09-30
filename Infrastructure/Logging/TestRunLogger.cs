@@ -65,13 +65,14 @@ public sealed class TestRunLogger : ITestRunLogger
     }
 
     /// <inheritdoc />
-    public void LogTestRunStopped(string header, string targetPath, string configuration, TimeSpan duration)
+    public void LogTestRunStopped(string header, string targetPath, string configuration, TimeSpan duration, string reason)
     {
         _Logger.Warning(
-            "RUN END | Status=STOPPED | Run={Run} | Target={Target} | Config={Config} | DurationMs={DurationMs:0.##}",
+            "RUN END | Status=STOPPED | Run={Run} | Target={Target} | Config={Config} | Reason={Reason} | DurationMs={DurationMs:0.##}",
             FormatValue(header),
             FormatValue(targetPath),
             FormatValue(configuration),
+            FormatValue(reason),
             duration.TotalMilliseconds);
     }
 

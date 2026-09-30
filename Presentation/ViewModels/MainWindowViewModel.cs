@@ -37,6 +37,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
     private readonly ISettingsService _SettingsService;
     private readonly ITestRunLogger _TestRunLogger;
+    private readonly IProcessTreeInspector _ProcessTreeInspector;
     private string _TargetPath = string.Empty;
     private string _SelectedConfiguration = "MIQA";
     private string _StatusText = "Choose target .sln or .csproj";
@@ -51,6 +52,19 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     private bool _IsRestoringSettings;
     private string? _PendingRestoredConfiguration;
     private CancellationTokenSource? _RunCancellation;
+    private RunStopReason _RunStopReason;
+
+    /// <summary>
+    /// How long every application started by a run must stay closed before the run is treated
+    /// as abandoned. UI tests close the application between test cases, so a short absence is
+    /// normal and must not end the run.
+    /// </summary>
+    private static readonly TimeSpan APP_UNDER_TEST_ABSENCE_GRACE_PERIOD = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How often the process tree is polled while a run is in progress.
+    /// </summary>
+    private static readonly TimeSpan APP_UNDER_TEST_POLL_INTERVAL = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// How long to keep draining a finished process's redirected output before abandoning it.
@@ -60,10 +74,14 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     /// </summary>
     private static readonly TimeSpan OUTPUT_DRAIN_GRACE_PERIOD = TimeSpan.FromSeconds(5);
 
-    public MainWindowViewModel(ISettingsService settingsService, ITestRunLogger testRunLogger)
+    public MainWindowViewModel(
+        ISettingsService settingsService,
+        ITestRunLogger testRunLogger,
+        IProcessTreeInspector processTreeInspector)
     {
         _SettingsService = settingsService;
         _TestRunLogger = testRunLogger;
+        _ProcessTreeInspector = processTreeInspector;
         _UiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         BrowseTargetCommand = new RelayCommand(BrowseTarget);
         RefreshTestsCommand = new AsyncRelayCommand(LoadTestsAsync, CanExecuteTestCommands);
@@ -262,7 +280,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
                 discoverArgs,
                 line => outputLines.Add(line),
                 TimeSpan.FromMinutes(2),
-                discoveryCancellation.Token);
+                discoveryCancellation);
 
             if (discoveryCancellation.IsCancellationRequested)
             {
@@ -827,6 +845,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         using var runCancellation = new CancellationTokenSource();
         _RunCancellation = runCancellation;
+        _RunStopReason = RunStopReason.None;
         StopCommand.NotifyCanExecuteChanged();
 
         var targetPath = TargetPath;
@@ -864,13 +883,20 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
                 };
             }
 
-            var exitCode = await RunDotnetCommandAsync(command, sink, cancellationToken: runCancellation.Token);
+            var exitCode = await RunDotnetCommandAsync(
+                command,
+                sink,
+                runCancellation: runCancellation,
+                watchForClosedAppUnderTest: true);
 
             if (runCancellation.IsCancellationRequested)
             {
-                StatusText = "Test run stopped";
+                var wasAppClosed = _RunStopReason == RunStopReason.ApplicationClosed;
+                StatusText = wasAppClosed
+                    ? "Test run stopped: application closed"
+                    : "Test run stopped";
                 LastRunState = TestRunState.None;
-                _TestRunLogger.LogTestRunStopped(header, targetPath, configuration, stopwatch.Elapsed);
+                _TestRunLogger.LogTestRunStopped(header, targetPath, configuration, stopwatch.Elapsed, DescribeStopReason(_RunStopReason));
                 return new TestRunOutcome(exitCode, WasStopped: true);
             }
 
@@ -1025,8 +1051,22 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         StatusText = "Stopping test run...";
         AppendOutput("Stopping test run...");
+        _RunStopReason = RunStopReason.User;
         runCancellation.Cancel();
         StopCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Describes why a run was stopped, for the run log.
+    /// </summary>
+    private static string DescribeStopReason(RunStopReason reason)
+    {
+        return reason switch
+        {
+            RunStopReason.ApplicationClosed => "Application under test closed",
+            RunStopReason.User => "Stopped by user",
+            _ => "Stopped"
+        };
     }
 
     private bool CanStopRun()
@@ -1489,8 +1529,10 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         string args,
         Action<string> onOutput,
         TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+        CancellationTokenSource? runCancellation = null,
+        bool watchForClosedAppUnderTest = false)
     {
+        var cancellationToken = runCancellation?.Token ?? CancellationToken.None;
         var processStartInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
@@ -1516,6 +1558,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             exitCancellation.CancelAfter(timeout.Value);
         }
 
+        using var watchdogCancellation = new CancellationTokenSource();
+        var watchdogTask = watchForClosedAppUnderTest && runCancellation is not null
+            ? WatchForClosedAppUnderTestAsync(process.Id, runCancellation, onOutput, watchdogCancellation.Token)
+            : Task.CompletedTask;
+
         try
         {
             await process.WaitForExitAsync(exitCancellation.Token);
@@ -1523,6 +1570,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         catch (OperationCanceledException)
         {
             KillProcessTree(process);
+            await StopWatchdogAsync(watchdogCancellation, watchdogTask);
             await DrainOutputAsync(drainTask);
 
             if (cancellationToken.IsCancellationRequested)
@@ -1537,9 +1585,86 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             return -1;
         }
 
+        await StopWatchdogAsync(watchdogCancellation, watchdogTask);
         await DrainOutputAsync(drainTask);
 
         return process.ExitCode;
+    }
+
+    /// <summary>
+    /// Watches the applications started by a run and cancels the run when they all disappear.
+    /// UI tests drive an application launched as a descendant of <c>dotnet test</c>; if that
+    /// application is closed, the test framework keeps polling for windows that will never
+    /// appear and the run would otherwise hang until it is stopped by hand.
+    /// </summary>
+    private async Task WatchForClosedAppUnderTestAsync(
+        int rootProcessId,
+        CancellationTokenSource runCancellation,
+        Action<string> onOutput,
+        CancellationToken watchdogToken)
+    {
+        var hasSeenAppUnderTest = false;
+        DateTime? absentSince = null;
+
+        try
+        {
+            while (!watchdogToken.IsCancellationRequested && !runCancellation.IsCancellationRequested)
+            {
+                await Task.Delay(APP_UNDER_TEST_POLL_INTERVAL, watchdogToken);
+
+                var visibleCount = _ProcessTreeInspector.CountDescendantsWithVisibleWindow(rootProcessId);
+
+                if (visibleCount > 0)
+                {
+                    hasSeenAppUnderTest = true;
+                    absentSince = null;
+                    continue;
+                }
+
+                // Nothing is shown yet during build and test discovery, so the run is only
+                // considered abandoned once an application has actually been seen.
+                if (!hasSeenAppUnderTest)
+                {
+                    continue;
+                }
+
+                absentSince ??= DateTime.UtcNow;
+
+                if (DateTime.UtcNow - absentSince.Value < APP_UNDER_TEST_ABSENCE_GRACE_PERIOD)
+                {
+                    continue;
+                }
+
+                onOutput(
+                    "The application under test is no longer running. Stopping the run after "
+                    + $"{APP_UNDER_TEST_ABSENCE_GRACE_PERIOD.TotalSeconds:0} seconds without it.");
+
+                _RunStopReason = RunStopReason.ApplicationClosed;
+                runCancellation.Cancel();
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The run finished or was stopped; the watchdog is no longer needed.
+        }
+    }
+
+    /// <summary>
+    /// Stops the watchdog loop and waits for it to finish so it cannot outlive the run.
+    /// </summary>
+    private static async Task StopWatchdogAsync(CancellationTokenSource watchdogCancellation, Task watchdogTask)
+    {
+        await watchdogCancellation.CancelAsync();
+
+        try
+        {
+            await watchdogTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the watchdog is cancelled.
+        }
     }
 
     /// <summary>
@@ -1676,6 +1801,16 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     /// tests as failed.
     /// </summary>
     private readonly record struct TestRunOutcome(int ExitCode, bool WasStopped);
+
+    /// <summary>
+    /// Why an in-progress run ended early.
+    /// </summary>
+    private enum RunStopReason
+    {
+        None,
+        User,
+        ApplicationClosed
+    }
 }
 
 public enum TestRunState

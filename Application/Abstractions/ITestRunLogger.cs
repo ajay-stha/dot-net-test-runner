@@ -52,7 +52,8 @@ public interface ITestRunLogger
     /// <param name="targetPath">The .sln or .csproj path under test.</param>
     /// <param name="configuration">The selected build configuration.</param>
     /// <param name="duration">How long the run had been going when it was stopped.</param>
-    void LogTestRunStopped(string header, string targetPath, string configuration, TimeSpan duration);
+    /// <param name="reason">Why the run ended early.</param>
+    void LogTestRunStopped(string header, string targetPath, string configuration, TimeSpan duration, string reason);
 
     /// <summary>
     /// Logs an unexpected failure while attempting to run tests.
