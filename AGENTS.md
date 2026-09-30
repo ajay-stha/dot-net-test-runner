@@ -29,7 +29,7 @@ application, so conventions are consistent across both codebases.
 | `Domain/Models/` | Value models (`TestRunnerSettings`, `TestDiscoveryEntry`, `DotnetCommandRequest`, `TestRunOutcome`, …). |
 | `Domain/Services/` | Dependency-free rules usable from any layer (`TestNameMatcher`, `TestFilterBuilder`). |
 | `Infrastructure/Services/` | Concrete service implementations (`SettingsService`, `DotnetCommandRunner`, `TestOutputParser`, `SourceTestIndexer`, …). |
-| `Presentation/ViewModels/` | MVVM view models (`MainWindowViewModel`, `TestTreeViewModel`, tree nodes, `OutputLogBuffer`, `ObservableObject`). |
+| `Presentation/ViewModels/` | MVVM view models (`MainWindowViewModel`, `TestTreeViewModel`, `TestRunProgressTracker`, tree nodes, `OutputLogBuffer`, `ObservableObject`). |
 | `Presentation/Reporting/` | Run-log reporting (`TestRunReporter`, `TestRunContext`) — turns run state and console output into log records. |
 | `Presentation/Commands/` | `RelayCommand`, `AsyncRelayCommand`, `AsyncRelayCommand<T>` (hand-rolled `ICommand` implementations). |
 | `Presentation/Behaviors/` | Reusable XAML attached behaviors (`OutputLogBehavior` colorizes the execution log). |
@@ -172,6 +172,12 @@ changes by building in `Debug`/`Release` and manually exercising the discovery/r
   lifetime, the bounded output drain, process-tree termination, and the
   [`AppUnderTestWatchdog`](Infrastructure/Services/AppUnderTestWatchdog.cs). Output is streamed
   back to the UI through the dispatcher-marshaled `OutputLogBuffer`.
+- **Live run progress:** runs pass `--logger "console;verbosity=normal"` so `dotnet test`
+  names every test result, not just the failures. Each streamed line is read by
+  `ITestOutputParser.ReadResultNotice` and applied to the tree by
+  [`TestRunProgressTracker`](Presentation/ViewModels/TestRunProgressTracker.cs) on the UI
+  dispatcher. These live updates are advisory; the authoritative per-test result is still
+  applied by `TestTreeViewModel.ApplyResults` once the run finishes.
 
 ## Adding a New Service
 
