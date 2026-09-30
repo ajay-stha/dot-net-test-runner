@@ -163,14 +163,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             if (SetProperty(ref _UiFontSize, clamped))
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TreeIconSize)));
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TreeIconStrokeThickness)));
             }
         }
     }
 
     public double TreeIconSize => UiFontSize + 3;
-
-    public double TreeIconStrokeThickness => Math.Max(1.5, Math.Round(UiFontSize * 0.13, 2));
 
     public bool IsRunning
     {
@@ -413,19 +410,16 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         var capturedLines = new List<string>();
         var exitCode = await RunTestsAsync(null, "Running all tests", capturedLines);
-        var runState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
+        var allMethods = TestClasses.SelectMany(static classNode => classNode.Methods).ToList();
+
+        ApplyMethodResults(allMethods, capturedLines, exitCode);
 
         foreach (var classNode in TestClasses)
         {
-            classNode.RunState = runState;
-
-            foreach (var methodNode in classNode.Methods)
-            {
-                methodNode.RunState = runState;
-            }
+            UpdateClassRunStateFromMethods(classNode);
         }
 
-        LogRunSummary("Running all tests", TestClasses.SelectMany(static classNode => classNode.Methods).ToList(), capturedLines);
+        LogRunSummary("Running all tests", allMethods, capturedLines);
     }
 
     private async Task RunSelectedTestsAsync()

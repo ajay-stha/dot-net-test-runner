@@ -7,6 +7,14 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Store rolling application log files in the directory containing the running executable.
+- Show a diagnostic rhombus-with-exclamation icon for tests that have not been run yet,
+  replacing the previous empty circle.
+
+### Fixed
+
+- **Run All** now marks each test with its own result. Previously a single failing test made
+  the whole tree show as failed, because the run's overall exit code was applied to every
+  class and method instead of the per-test results parsed from the `dotnet test` output.
 
 ## [1.0.1-beta1] - 2026-09-28
 

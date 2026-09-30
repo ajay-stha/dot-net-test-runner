@@ -124,16 +124,27 @@
                         Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                         Margin="0,0,6,0"
                         VerticalAlignment="Center">
-                        <Ellipse
+                        <Viewbox
                             x:Name="ClassNotRunIcon"
                             Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Fill="Transparent"
-                            Stroke="{StaticResource SecondaryTextBrush}"
-                            StrokeThickness="{Binding DataContext.TreeIconStrokeThickness, Source={x:Reference RootWindow}}"
-                            Visibility="Visible" />
+                            Stretch="Uniform"
+                            Visibility="Visible">
+                            <Canvas Width="14" Height="14">
+                                <Path Data="M 7 1 L 13 7 L 7 13 L 1 7 Z"
+                                      Fill="Transparent"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeLineJoin="Round"
+                                      StrokeThickness="1.4" />
+                                <Path Data="M 7 4.2 L 7 8 M 7 10.1 L 7 10.2"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeEndLineCap="Round"
+                                      StrokeStartLineCap="Round"
+                                      StrokeThickness="1.6" />
+                            </Canvas>
+                        </Viewbox>
                         <Viewbox x:Name="ClassCheckIcon"
                                  Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                                  Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
@@ -246,16 +257,27 @@
                         Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                         Margin="0,0,6,0"
                         VerticalAlignment="Center">
-                        <Ellipse
+                        <Viewbox
                             x:Name="MethodNotRunIcon"
                             Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Fill="Transparent"
-                            Stroke="{StaticResource SecondaryTextBrush}"
-                            StrokeThickness="{Binding DataContext.TreeIconStrokeThickness, Source={x:Reference RootWindow}}"
-                            Visibility="Visible" />
+                            Stretch="Uniform"
+                            Visibility="Visible">
+                            <Canvas Width="14" Height="14">
+                                <Path Data="M 7 1 L 13 7 L 7 13 L 1 7 Z"
+                                      Fill="Transparent"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeLineJoin="Round"
+                                      StrokeThickness="1.4" />
+                                <Path Data="M 7 4.2 L 7 8 M 7 10.1 L 7 10.2"
+                                      Stroke="{StaticResource SecondaryTextBrush}"
+                                      StrokeEndLineCap="Round"
+                                      StrokeStartLineCap="Round"
+                                      StrokeThickness="1.6" />
+                            </Canvas>
+                        </Viewbox>
                         <Viewbox x:Name="MethodCheckIcon"
                                  Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                                  Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
