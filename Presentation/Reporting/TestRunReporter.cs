@@ -69,6 +69,16 @@ public sealed class TestRunReporter
     }
 
     /// <summary>
+    /// Records the result of a single test while the run is still in progress.
+    /// </summary>
+    /// <param name="context">The run being reported.</param>
+    /// <param name="progress">The reported test, its result, and how far the run has got.</param>
+    public void ReportProgress(TestRunContext context, TestRunProgress progress)
+    {
+        _TestRunLogger.LogTestRunProgress(context.Header, progress);
+    }
+
+    /// <summary>
     /// Records the pass/fail counts for a completed run and, for each failed test, the error
     /// message and stack trace extracted from the captured output when available.
     /// </summary>
