@@ -104,8 +104,10 @@ target path or selected configuration changes — no manual save action is requi
 The application logs to a rolling daily file at:
 
 ```
-%APPDATA%\DotNetTestRunner\logs\testrunner-<date>.log
+<application directory>\testrunner-<date>.log
 ```
+
+The application directory is the directory containing the running executable.
 
 Each entry records a timestamp, log level, and the Windows user account that produced it, for
 example:

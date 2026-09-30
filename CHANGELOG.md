@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Store rolling application log files in the directory containing the running executable.
+
+## [1.0.1-beta1] - 2026-09-28
+
 ### Added
 
 - Added structured logging via Serilog: application start/stop events, unhandled/crash
