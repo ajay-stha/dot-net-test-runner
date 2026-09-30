@@ -28,6 +28,12 @@ public sealed class MainWindowViewModel : ObservableObject
     private const string PREFERRED_CONFIGURATION = "MIQA";
 
     /// <summary>
+    /// Console logger settings that make <c>dotnet test</c> report every test result, not
+    /// just the failures, so a run can be followed while it is still in progress.
+    /// </summary>
+    private const string RESULT_REPORTING_LOGGER = "--logger \"console;verbosity=normal\"";
+
+    /// <summary>
     /// Configurations offered when a target does not declare its own.
     /// </summary>
     private static readonly string[] _DefaultConfigurations = ["Debug", "Release", "MIQA", "UAT"];
@@ -53,6 +59,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ITestOutputParser _TestOutputParser;
     private readonly ITestTargetService _TestTargetService;
     private readonly OutputLogBuffer _OutputLogBuffer;
+    private readonly Dispatcher _UiDispatcher;
 
     private string _TargetPath = string.Empty;
     private string _SelectedConfiguration = PREFERRED_CONFIGURATION;
@@ -85,6 +92,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _TestTargetService = testTargetService;
 
         var uiDispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        _UiDispatcher = uiDispatcher;
         _OutputLogBuffer = new OutputLogBuffer(uiDispatcher);
         _OutputLogBuffer.PropertyChanged += OnOutputLogBufferChanged;
 
@@ -552,8 +560,14 @@ public sealed class MainWindowViewModel : ObservableObject
         TestTreeViewModel.MarkRunning(methods, classes);
 
         var context = new TestRunContext(header, TargetPath, SelectedConfiguration);
+        var progressTracker = new TestRunProgressTracker(
+            _UiDispatcher,
+            methods,
+            classes,
+            progress => OnTestRunProgress(context, progress));
+
         var capturedLines = new List<string>();
-        var outcome = await RunTestsAsync(context, filter, capturedLines);
+        var outcome = await RunTestsAsync(context, filter, capturedLines, progressTracker);
 
         // An interrupted run reports no per-test results, so its tests must be cleared rather
         // than marked failed.
@@ -577,11 +591,13 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <param name="context">Describes the run being carried out.</param>
     /// <param name="filter">Test filter, or <see langword="null"/> to run every test.</param>
     /// <param name="capturedLines">Receives every line of console output.</param>
+    /// <param name="progressTracker">Follows the run's results as they are reported.</param>
     /// <returns>The outcome of the run.</returns>
     private async Task<TestRunOutcome> RunTestsAsync(
         TestRunContext context,
         string? filter,
-        List<string> capturedLines)
+        List<string> capturedLines,
+        TestRunProgressTracker progressTracker)
     {
         IsRunning = true;
         LastRunState = TestRunState.Running;
@@ -599,7 +615,10 @@ public sealed class MainWindowViewModel : ObservableObject
             StatusText = "Running tests...";
             AppendOutput($"{Environment.NewLine}--- {context.Header} ({context.Configuration}) ---");
 
-            var arguments = $"test \"{context.TargetPath}\" -c {context.Configuration} --nologo";
+            // The console logger only names passing tests at normal verbosity, which is what
+            // lets the tree and the log be updated test by test while the run is going.
+            var arguments =
+                $"test \"{context.TargetPath}\" -c {context.Configuration} --nologo {RESULT_REPORTING_LOGGER}";
 
             if (!string.IsNullOrWhiteSpace(filter))
             {
@@ -610,7 +629,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             var result = await _DotnetCommandRunner.RunAsync(
                 CreateRequest(arguments, timeout: null, watchForClosedAppUnderTest: true),
-                line => CaptureOutput(capturedLines, line),
+                line => CaptureOutput(capturedLines, line, progressTracker),
                 runCancellation);
 
             if (runCancellation.IsCancellationRequested || result.TimedOut)
@@ -700,7 +719,7 @@ public sealed class MainWindowViewModel : ObservableObject
         };
     }
 
-    private void CaptureOutput(List<string> capturedLines, string line)
+    private void CaptureOutput(List<string> capturedLines, string line, TestRunProgressTracker progressTracker)
     {
         lock (capturedLines)
         {
@@ -708,6 +727,29 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         AppendOutput(line);
+
+        var notice = _TestOutputParser.ReadResultNotice(line);
+
+        if (notice is not null)
+        {
+            progressTracker.Report(notice);
+        }
+    }
+
+    /// <summary>
+    /// Shows and logs a test result reported while the run is still going.
+    /// </summary>
+    /// <param name="context">The run in progress.</param>
+    /// <param name="progress">The reported test, its result, and how far the run has got.</param>
+    private void OnTestRunProgress(TestRunContext context, TestRunProgress progress)
+    {
+        // A stopped run reports no further results, so its status text must not be overwritten.
+        if (_RunCancellation is { IsCancellationRequested: false })
+        {
+            StatusText = $"Running tests... {progress.CompletedCount}/{progress.TotalCount} done";
+        }
+
+        _TestRunReporter.ReportProgress(context, progress);
     }
 
     #endregion

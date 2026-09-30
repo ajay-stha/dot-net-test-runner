@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Test runs now report progress test by test instead of only at the end. Each test turns
+  green or red in the Test Explorer as soon as its result arrives, the status bar shows how
+  many of the run's tests have finished, and every result is written to the run log. This is
+  most noticeable for **Run All**, where a long run previously gave no feedback until it was
+  completely finished.
+
 ## [1.0.2] - 2026-09-30
 
 ### Added
