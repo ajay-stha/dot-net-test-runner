@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Added a **Stop** button that ends an in-progress test discovery or run, terminating the
+  `dotnet` process and every process it started (including applications launched by UI
+  tests). Tests that did not finish return to the "not run" state instead of being reported
+  as failures.
+
 ### Changed
 
 - Store rolling application log files in a `logs` folder inside the directory containing the
@@ -13,6 +20,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A run no longer stays stuck on "Running" when a process started by the tests outlives
+  `dotnet test`. Applications launched by UI tests inherit the redirected output pipes, so
+  the output readers never reached end of stream and the run was never observed as finished,
+  leaving every command disabled until the runner was restarted. The run now completes once
+  the `dotnet` process exits, draining any remaining output within a short grace period.
 - **Run All** now marks each test with its own result. Previously a single failing test made
   the whole tree show as failed, because the run's overall exit code was applied to every
   class and method instead of the per-test results parsed from the `dotnet test` output.

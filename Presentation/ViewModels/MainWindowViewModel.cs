@@ -50,6 +50,15 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     private int _IsOutputFlushScheduled;
     private bool _IsRestoringSettings;
     private string? _PendingRestoredConfiguration;
+    private CancellationTokenSource? _RunCancellation;
+
+    /// <summary>
+    /// How long to keep draining a finished process's redirected output before abandoning it.
+    /// A descendant process (such as an application launched by a UI test) inherits the
+    /// output pipes, so the readers can stay open indefinitely after <c>dotnet</c> itself
+    /// exits. Without this bound the run would never be observed as finished.
+    /// </summary>
+    private static readonly TimeSpan OUTPUT_DRAIN_GRACE_PERIOD = TimeSpan.FromSeconds(5);
 
     public MainWindowViewModel(ISettingsService settingsService, ITestRunLogger testRunLogger)
     {
@@ -64,6 +73,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         RunClassCommand = new AsyncRelayCommand<TestClassNode>(RunClassNodeAsync, CanExecuteRunClassNode);
         RunMethodCommand = new AsyncRelayCommand<TestMethodNode>(RunMethodNodeAsync, CanExecuteRunMethodNode);
         ClearLogCommand = new RelayCommand(ClearLog);
+        StopCommand = new RelayCommand(StopRun, CanStopRun);
 
         foreach (var configuration in _DefaultConfigurations)
         {
@@ -111,6 +121,8 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
     public AsyncRelayCommand<TestMethodNode> RunMethodCommand { get; }
 
     public RelayCommand ClearLogCommand { get; }
+
+    public RelayCommand StopCommand { get; }
 
     public string TargetPath
     {
@@ -231,6 +243,10 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         IsRunning = true;
 
+        using var discoveryCancellation = new CancellationTokenSource();
+        _RunCancellation = discoveryCancellation;
+        StopCommand.NotifyCanExecuteChanged();
+
         try
         {
             StatusText = "Discovering tests...";
@@ -245,7 +261,15 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             var exitCode = await RunDotnetCommandAsync(
                 discoverArgs,
                 line => outputLines.Add(line),
-                TimeSpan.FromMinutes(2));
+                TimeSpan.FromMinutes(2),
+                discoveryCancellation.Token);
+
+            if (discoveryCancellation.IsCancellationRequested)
+            {
+                StatusText = "Test discovery stopped";
+                AppendOutput(StatusText);
+                return;
+            }
 
             var parsedTests = ParseTests(outputLines)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -271,6 +295,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
         finally
         {
+            _RunCancellation = null;
             IsRunning = false;
         }
     }
@@ -313,13 +338,19 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         var classFilter = string.Join("|", classFilterParts);
         var capturedLines = new List<string>();
         var header = $"Running class {className}";
-        var exitCode = await RunTestsAsync(classFilter, header, capturedLines);
+        var outcome = await RunTestsAsync(classFilter, header, capturedLines);
 
         var allClassMethods = matchingClassNodes
             .SelectMany(static classNode => classNode.Methods)
             .ToList();
 
-        ApplyMethodResults(allClassMethods, capturedLines, exitCode);
+        if (outcome.WasStopped)
+        {
+            ResetRunStates(allClassMethods, matchingClassNodes);
+            return;
+        }
+
+        ApplyMethodResults(allClassMethods, capturedLines, outcome.ExitCode);
         LogRunSummary(header, allClassMethods, capturedLines);
 
         foreach (var classNode in matchingClassNodes)
@@ -354,8 +385,20 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         var exactFilter = $"FullyQualifiedName={EscapeFilterValue(fullyQualifiedName)}";
         var header = $"Running method {fullyQualifiedName}";
         var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(exactFilter, header, capturedLines);
-        var methodState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
+        var outcome = await RunTestsAsync(exactFilter, header, capturedLines);
+
+        var affectedClasses = TestClasses
+            .Where(classNode => classNode.Methods.Any(
+                methodNode => string.Equals(methodNode.FullyQualifiedName, fullyQualifiedName, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (outcome.WasStopped)
+        {
+            ResetRunStates(matchingMethods, affectedClasses);
+            return;
+        }
+
+        var methodState = outcome.ExitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
 
         foreach (var methodNode in matchingMethods)
         {
@@ -364,8 +407,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         LogRunSummary(header, matchingMethods, capturedLines);
 
-        foreach (var classNode in TestClasses.Where(classNode => classNode.Methods.Any(
-                     methodNode => string.Equals(methodNode.FullyQualifiedName, fullyQualifiedName, StringComparison.OrdinalIgnoreCase))))
+        foreach (var classNode in affectedClasses)
         {
             UpdateClassRunStateFromMethods(classNode);
         }
@@ -409,10 +451,16 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         }
 
         var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(null, "Running all tests", capturedLines);
+        var outcome = await RunTestsAsync(null, "Running all tests", capturedLines);
         var allMethods = TestClasses.SelectMany(static classNode => classNode.Methods).ToList();
 
-        ApplyMethodResults(allMethods, capturedLines, exitCode);
+        if (outcome.WasStopped)
+        {
+            ResetRunStates(allMethods, TestClasses);
+            return;
+        }
+
+        ApplyMethodResults(allMethods, capturedLines, outcome.ExitCode);
 
         foreach (var classNode in TestClasses)
         {
@@ -461,12 +509,38 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             : $"Running {selectedMethods.Count} selected tests";
 
         var capturedLines = new List<string>();
-        var exitCode = await RunTestsAsync(filter, header, capturedLines);
+        var outcome = await RunTestsAsync(filter, header, capturedLines);
 
-        ApplyMethodResults(selectedMethods, capturedLines, exitCode);
+        if (outcome.WasStopped)
+        {
+            ResetRunStates(selectedMethods, affectedClasses);
+            return;
+        }
+
+        ApplyMethodResults(selectedMethods, capturedLines, outcome.ExitCode);
         LogRunSummary(header, selectedMethods, capturedLines);
 
         foreach (var classNode in affectedClasses)
+        {
+            UpdateClassRunStateFromMethods(classNode);
+        }
+    }
+
+    /// <summary>
+    /// Clears the run state of the given nodes back to "not run". Used when a run is stopped,
+    /// because the results of an interrupted run are unknown and must not be shown as
+    /// failures.
+    /// </summary>
+    private static void ResetRunStates(
+        IEnumerable<TestMethodNode> methods,
+        IEnumerable<TestClassNode> classes)
+    {
+        foreach (var methodNode in methods)
+        {
+            methodNode.RunState = TestRunState.None;
+        }
+
+        foreach (var classNode in classes)
         {
             UpdateClassRunStateFromMethods(classNode);
         }
@@ -746,10 +820,14 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         ClearSelectionCommand.NotifyCanExecuteChanged();
     }
 
-    private async Task<int> RunTestsAsync(string? filter, string header, List<string>? capturedLines = null)
+    private async Task<TestRunOutcome> RunTestsAsync(string? filter, string header, List<string>? capturedLines = null)
     {
         IsRunning = true;
         LastRunState = TestRunState.Running;
+
+        using var runCancellation = new CancellationTokenSource();
+        _RunCancellation = runCancellation;
+        StopCommand.NotifyCanExecuteChanged();
 
         var targetPath = TargetPath;
         var configuration = SelectedConfiguration;
@@ -786,11 +864,20 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
                 };
             }
 
-            var exitCode = await RunDotnetCommandAsync(command, sink);
+            var exitCode = await RunDotnetCommandAsync(command, sink, cancellationToken: runCancellation.Token);
+
+            if (runCancellation.IsCancellationRequested)
+            {
+                StatusText = "Test run stopped";
+                LastRunState = TestRunState.None;
+                _TestRunLogger.LogTestRunStopped(header, targetPath, configuration, stopwatch.Elapsed);
+                return new TestRunOutcome(exitCode, WasStopped: true);
+            }
+
             StatusText = exitCode == 0 ? "Test run completed" : "Test run failed";
             LastRunState = exitCode == 0 ? TestRunState.Passed : TestRunState.Failed;
             _TestRunLogger.LogTestRunCompleted(header, targetPath, configuration, exitCode, stopwatch.Elapsed);
-            return exitCode;
+            return new TestRunOutcome(exitCode, WasStopped: false);
         }
         catch (Exception ex)
         {
@@ -798,10 +885,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
             StatusText = "Test run failed";
             LastRunState = TestRunState.Failed;
             _TestRunLogger.LogTestRunError(header, targetPath, configuration, ex);
-            return -1;
+            return new TestRunOutcome(-1, WasStopped: false);
         }
         finally
         {
+            _RunCancellation = null;
             IsRunning = false;
         }
     }
@@ -919,6 +1007,31 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         return !IsRunning
             && !string.IsNullOrWhiteSpace(TargetPath)
             && File.Exists(TargetPath);
+    }
+
+    /// <summary>
+    /// Requests cancellation of the in-progress run. The <c>dotnet</c> process and every
+    /// process it started are terminated so a hung or abandoned test cannot keep the runner
+    /// stuck in the running state.
+    /// </summary>
+    private void StopRun()
+    {
+        var runCancellation = _RunCancellation;
+
+        if (runCancellation is null || runCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        StatusText = "Stopping test run...";
+        AppendOutput("Stopping test run...");
+        runCancellation.Cancel();
+        StopCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanStopRun()
+    {
+        return IsRunning && _RunCancellation is { IsCancellationRequested: false };
     }
 
     private void ClearLog()
@@ -1369,9 +1482,14 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         ClearSelectionCommand.NotifyCanExecuteChanged();
         RunClassCommand.NotifyCanExecuteChanged();
         RunMethodCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
     }
 
-    private async Task<int> RunDotnetCommandAsync(string args, Action<string> onOutput, TimeSpan? timeout = null)
+    private async Task<int> RunDotnetCommandAsync(
+        string args,
+        Action<string> onOutput,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
     {
         var processStartInfo = new ProcessStartInfo
         {
@@ -1389,49 +1507,105 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
 
         var outputTask = ReadStreamAsync(process.StandardOutput, onOutput);
         var errorTask = ReadStreamAsync(process.StandardError, onOutput);
-        var processTask = process.WaitForExitAsync();
-        var combinedTask = Task.WhenAll(outputTask, errorTask, processTask);
+        var drainTask = Task.WhenAll(outputTask, errorTask);
+
+        using var exitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         if (timeout.HasValue)
         {
-            var completedTask = await Task.WhenAny(combinedTask, Task.Delay(timeout.Value));
-
-            if (!ReferenceEquals(completedTask, combinedTask))
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                catch
-                {
-                    // Best effort timeout stop.
-                }
-
-                onOutput($"Command timed out after {timeout.Value.TotalSeconds:0} seconds.");
-                return -1;
-            }
+            exitCancellation.CancelAfter(timeout.Value);
         }
 
-        await combinedTask;
+        try
+        {
+            await process.WaitForExitAsync(exitCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            KillProcessTree(process);
+            await DrainOutputAsync(drainTask);
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                onOutput("Run stopped. The dotnet process and any processes it started were terminated.");
+            }
+            else
+            {
+                onOutput($"Command timed out after {timeout!.Value.TotalSeconds:0} seconds.");
+            }
+
+            return -1;
+        }
+
+        await DrainOutputAsync(drainTask);
 
         return process.ExitCode;
     }
 
+    /// <summary>
+    /// Waits a bounded time for the redirected output readers to reach end of stream.
+    /// Processes started by the tests inherit the output pipes and can outlive
+    /// <c>dotnet</c> itself, so the readers are abandoned once the grace period elapses
+    /// rather than blocking the run forever.
+    /// </summary>
+    private static async Task DrainOutputAsync(Task drainTask)
+    {
+        var completedTask = await Task.WhenAny(drainTask, Task.Delay(OUTPUT_DRAIN_GRACE_PERIOD));
+
+        if (ReferenceEquals(completedTask, drainTask))
+        {
+            await drainTask;
+            return;
+        }
+
+        // The readers are abandoned but still pending. Observe any later fault so it cannot
+        // surface through TaskScheduler.UnobservedTaskException and be logged as a crash.
+        _ = drainTask.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Terminates a process and every process it started. Tests commonly launch applications
+    /// as child processes, and those must not be left running after a stopped run.
+    /// </summary>
+    private static void KillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
+        {
+            // The process already exited or cannot be terminated; stopping is best effort.
+        }
+    }
+
     private static async Task ReadStreamAsync(StreamReader reader, Action<string> onOutput)
     {
-        while (true)
+        try
         {
-            var line = await reader.ReadLineAsync();
-
-            if (line is null)
+            while (true)
             {
-                break;
-            }
+                var line = await reader.ReadLineAsync();
 
-            onOutput(line);
+                if (line is null)
+                {
+                    break;
+                }
+
+                onOutput(line);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
+        {
+            // The stream was closed while this reader was abandoned after the grace period.
+            // Any remaining output is unrecoverable and must not fault the run.
         }
     }
 
@@ -1495,6 +1669,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
     }
+
+    /// <summary>
+    /// Outcome of a <c>dotnet test</c> invocation. <see cref="WasStopped"/> distinguishes a
+    /// run the user cancelled from one that genuinely failed, so cancelled runs do not mark
+    /// tests as failed.
+    /// </summary>
+    private readonly record struct TestRunOutcome(int ExitCode, bool WasStopped);
 }
 
 public enum TestRunState

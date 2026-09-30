@@ -46,6 +46,15 @@ public interface ITestRunLogger
     void LogTestRunCompleted(string header, string targetPath, string configuration, int exitCode, TimeSpan duration);
 
     /// <summary>
+    /// Logs that a test run was stopped by the user before it finished.
+    /// </summary>
+    /// <param name="header">A short description of the run.</param>
+    /// <param name="targetPath">The .sln or .csproj path under test.</param>
+    /// <param name="configuration">The selected build configuration.</param>
+    /// <param name="duration">How long the run had been going when it was stopped.</param>
+    void LogTestRunStopped(string header, string targetPath, string configuration, TimeSpan duration);
+
+    /// <summary>
     /// Logs an unexpected failure while attempting to run tests.
     /// </summary>
     /// <param name="header">A short description of the run.</param>

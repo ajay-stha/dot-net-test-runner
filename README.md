@@ -67,6 +67,10 @@ versioned section when updating the application version or creating a tag.
    - Right-click a class or test method to run it directly.
 5. Review pass/fail status in the test tree and command output in the log panel.
 
+Select **Stop** to end a run that is in progress. The `dotnet` process and every process it
+started are terminated, so an application launched by a UI test is closed too. Tests that did
+not finish return to the "not run" state rather than being reported as failures.
+
 The runner executes standard `dotnet test` commands with the selected configuration. Selected tests use `FullyQualifiedName` filters, so their test adapters must support the standard VSTest filter syntax.
 
 The last selected target path and build configuration are persisted automatically (see

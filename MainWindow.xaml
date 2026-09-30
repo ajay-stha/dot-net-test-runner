@@ -490,6 +490,8 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="10" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
@@ -543,7 +545,26 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="6" Command="{Binding ClearSelectionCommand}">
+                <Button
+                    Grid.Column="6"
+                    Command="{Binding StopCommand}"
+                    ToolTip="Stop the running tests and close any applications they started">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="12"
+                            Foreground="{StaticResource DangerBrush}"
+                            Text="&#xE71A;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Foreground="{StaticResource DangerBrush}"
+                            Text="Stop" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="8" Command="{Binding ClearSelectionCommand}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock
                             Margin="0,0,6,0"
@@ -555,7 +576,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="8" Command="{Binding ClearLogCommand}">
+                <Button Grid.Column="10" Command="{Binding ClearLogCommand}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock
                             Margin="0,0,6,0"
