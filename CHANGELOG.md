@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## [1.1.0] - 2026-11-09
+
+### Changed
+
+- Group the Test Explorer by selected solution/project, namespace, and class, with short
+  class names and descendant test counts like Visual Studio. Classes start collapsed;
+  group checkboxes select descendant tests and status icons summarize their results.
+
 ### Added
 
 - Test runs now report progress test by test instead of only at the end. Each test turns
