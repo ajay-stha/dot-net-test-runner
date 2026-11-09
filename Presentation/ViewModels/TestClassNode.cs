@@ -5,7 +5,7 @@ namespace DotNetTestRunner.Presentation.ViewModels;
 /// <summary>
 /// A test class shown in the test tree, grouping the test methods it declares.
 /// </summary>
-public sealed class TestClassNode : ObservableObject
+public sealed class TestClassNode : TestTreeNode
 {
     private TestRunState _RunState;
     private bool? _IsSelected = false;
@@ -14,6 +14,7 @@ public sealed class TestClassNode : ObservableObject
     public TestClassNode(string className)
     {
         ClassName = className;
+        Methods.CollectionChanged += (_, _) => OnPropertyChanged(nameof(TestCount));
     }
 
     /// <summary>
@@ -25,6 +26,29 @@ public sealed class TestClassNode : ObservableObject
     /// Gets the fully qualified name of the class.
     /// </summary>
     public string ClassName { get; }
+
+    /// <summary>
+    /// Gets the short class name displayed beneath its namespace.
+    /// </summary>
+    public string DisplayName => ClassName[(ClassName.LastIndexOf('.') + 1)..];
+
+    /// <summary>
+    /// Gets the namespace containing the class, or a label for the global namespace.
+    /// </summary>
+    public string NamespaceName
+    {
+        get
+        {
+            var separatorIndex = ClassName.LastIndexOf('.');
+
+            return separatorIndex >= 0 ? ClassName[..separatorIndex] : "(global namespace)";
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of tests in this class.
+    /// </summary>
+    public int TestCount => Methods.Count;
 
     /// <summary>
     /// Gets the test methods declared by the class.

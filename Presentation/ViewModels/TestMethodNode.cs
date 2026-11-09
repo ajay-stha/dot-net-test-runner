@@ -3,7 +3,7 @@ namespace DotNetTestRunner.Presentation.ViewModels;
 /// <summary>
 /// A single test method shown in the test tree.
 /// </summary>
-public sealed class TestMethodNode : ObservableObject
+public sealed class TestMethodNode : TestTreeNode
 {
     private TestRunState _RunState;
     private bool _IsSelected;
