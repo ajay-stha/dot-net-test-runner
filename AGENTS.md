@@ -155,6 +155,11 @@ changes by building in `Debug`/`Release` and manually exercising the discovery/r
   of the view model unless it is genuinely about sequencing or user-facing state.
 - **Bindable objects** derive from [`ObservableObject`](Presentation/ViewModels/ObservableObject.cs)
   rather than implementing `INotifyPropertyChanged` again.
+- **Test explorer hierarchy:** `TestTreeViewModel.Roots` displays the selected target, full
+  namespaces, short class names, and methods. `TestGroupNode` aggregates descendant counts,
+  selection, and status; `Classes` remains the flat execution/result lookup index.
+  `TestTreeNode` holds expansion state: groups start expanded and classes start collapsed.
+  The root label identifies the selected solution/project, not an assembly.
 - **Settings persistence:** [`MainWindowViewModel`](Presentation/ViewModels/MainWindowViewModel.cs)
   persists the selected target path and build configuration via `ISettingsService` to
   `%APPDATA%\DotNetTestRunner\settings.json`, restoring them at startup (falling back to the

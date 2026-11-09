@@ -113,7 +113,7 @@
                 Only view-specific data templates (bound to this window's view model types)
                 are defined here.
             -->
-            <HierarchicalDataTemplate DataType="{x:Type vm:TestClassNode}" ItemsSource="{Binding Methods}">
+            <DataTemplate x:Key="TestContainerHeader">
                 <StackPanel Orientation="Horizontal">
                     <CheckBox
                         Margin="0,0,6,0"
@@ -121,7 +121,7 @@
                         Focusable="False"
                         IsChecked="{Binding IsSelected, Mode=TwoWay}"
                         IsThreeState="True"
-                        ToolTip="Select all tests in this class" />
+                        ToolTip="Select all tests in this group" />
                     <Grid
                         Width="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
                         Height="{Binding DataContext.TreeIconSize, Source={x:Reference RootWindow}}"
@@ -202,18 +202,12 @@
                         </Viewbox>
                     </Grid>
 
-                    <TextBlock Text="{Binding ClassName}" TextWrapping="Wrap">
-                        <TextBlock.ContextMenu>
-                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                <MenuItem
-                                    Command="{Binding DataContext.RunClassCommand, Source={x:Reference RootWindow}}"
-                                    CommandParameter="{Binding}"
-                                    Header="Run Class Tests" />
-                            </ContextMenu>
-                        </TextBlock.ContextMenu>
-                    </TextBlock>
+                    <TextBlock Text="{Binding DisplayName}" />
+                    <TextBlock Margin="4,0,0,0"
+                               Foreground="{StaticResource SecondaryTextBrush}"
+                               Text="{Binding TestCount, StringFormat='({0})'}" />
                 </StackPanel>
-                <HierarchicalDataTemplate.Triggers>
+                <DataTemplate.Triggers>
                     <DataTrigger Binding="{Binding RunState}" Value="{x:Static vm:TestRunState.None}">
                         <Setter TargetName="ClassNotRunIcon" Property="Visibility" Value="Visible" />
                     </DataTrigger>
@@ -244,7 +238,26 @@
                             <StopStoryboard BeginStoryboardName="ClassSpinnerStoryboard" />
                         </DataTrigger.ExitActions>
                     </DataTrigger>
-                </HierarchicalDataTemplate.Triggers>
+                </DataTemplate.Triggers>
+            </DataTemplate>
+
+            <HierarchicalDataTemplate DataType="{x:Type vm:TestGroupNode}" ItemsSource="{Binding Children}">
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TestContainerHeader}" />
+            </HierarchicalDataTemplate>
+
+            <HierarchicalDataTemplate DataType="{x:Type vm:TestClassNode}" ItemsSource="{Binding Methods}">
+                <ContentControl Content="{Binding}"
+                                ContentTemplate="{StaticResource TestContainerHeader}"
+                                ToolTip="{Binding ClassName}">
+                    <ContentControl.ContextMenu>
+                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                            <MenuItem
+                                Command="{Binding DataContext.RunClassCommand, Source={x:Reference RootWindow}}"
+                                CommandParameter="{Binding}"
+                                Header="Run Class Tests" />
+                        </ContextMenu>
+                    </ContentControl.ContextMenu>
+                </ContentControl>
             </HierarchicalDataTemplate>
 
             <DataTemplate DataType="{x:Type vm:TestMethodNode}">
@@ -629,7 +642,7 @@
                             Text="Test Explorer" />
                     </StackPanel>
 
-                    <TreeView Grid.Row="1" ItemsSource="{Binding TestClasses}">
+                    <TreeView Grid.Row="1" ItemsSource="{Binding TestTree.Roots}">
                         <TreeView.ItemContainerStyle>
                             <StaticResource ResourceKey="DarkTreeViewItemStyle" />
                         </TreeView.ItemContainerStyle>
