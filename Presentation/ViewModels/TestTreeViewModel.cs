@@ -16,21 +16,28 @@ public sealed class TestTreeViewModel
     public event EventHandler? SelectionChanged;
 
     /// <summary>
-    /// Gets the test classes shown in the tree.
+    /// Gets the flat class index used for test execution and result matching.
     /// </summary>
     public ObservableCollection<TestClassNode> Classes { get; } = [];
 
     /// <summary>
-    /// Replaces the tree with the given discovered tests, grouped by class.
+    /// Gets the target roots displayed above namespace and class nodes.
+    /// </summary>
+    public ObservableCollection<TestGroupNode> Roots { get; } = [];
+
+    /// <summary>
+    /// Replaces the tree with tests grouped by target, full namespace, and class.
     /// </summary>
     /// <param name="entries">Tests to show.</param>
-    public void Rebuild(IEnumerable<TestDiscoveryEntry> entries)
+    /// <param name="targetName">Display name of the selected solution or project.</param>
+    public void Rebuild(IEnumerable<TestDiscoveryEntry> entries, string targetName)
     {
         foreach (var existingClassNode in Classes)
         {
             existingClassNode.SelectionChanged -= OnNodeSelectionChanged;
         }
 
+        Roots.Clear();
         Classes.Clear();
 
         var groups = entries
@@ -52,6 +59,17 @@ public sealed class TestTreeViewModel
 
             classNode.SelectionChanged += OnNodeSelectionChanged;
             Classes.Add(classNode);
+        }
+
+        if (Classes.Count > 0)
+        {
+            var namespaceNodes = Classes
+                .GroupBy(static classNode => classNode.NamespaceName, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(static group => new TestGroupNode(group.Key, group.ToList()))
+                .ToList();
+
+            Roots.Add(new TestGroupNode(targetName, namespaceNodes));
         }
     }
 
