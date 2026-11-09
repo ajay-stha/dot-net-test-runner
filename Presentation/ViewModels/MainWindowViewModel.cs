@@ -328,7 +328,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ResetConfigurations(configurations.Count > 0 ? configurations : _DefaultConfigurations);
 
         SelectedConfiguration = ChoosePreferredConfiguration();
-        TestTree.Rebuild([]);
+        TestTree.Rebuild([], Path.GetFileNameWithoutExtension(TargetPath));
 
         AppendOutput($"Using test target: {targetPath}");
         StatusText = "Target selected. Discovering tests...";
@@ -442,7 +442,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var discoveredTests = _TestOutputParser.ParseDiscoveredTestNames(outputLines);
             var resolvedEntries = await _TestDiscoveryService.ResolveEntriesAsync(discoveredTests, TargetPath);
 
-            TestTree.Rebuild(resolvedEntries);
+            TestTree.Rebuild(resolvedEntries, Path.GetFileNameWithoutExtension(TargetPath));
             NotifyCommandStateChanged();
 
             if (result.ExitCode != 0)

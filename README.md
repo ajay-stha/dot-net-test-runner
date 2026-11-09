@@ -67,6 +67,13 @@ versioned section when updating the application version or creating a tag.
    - Right-click a class or test method to run it directly.
 5. Review pass/fail status in the test tree and command output in the log panel.
 
+The Test Explorer groups tests by selected solution/project, full namespace, and short
+class name, with test counts at each level. Namespaces start expanded and classes start
+collapsed. Expand a class to see its methods; its tooltip retains the fully qualified name.
+Group checkboxes select all descendant tests for **Run Selected**, and group status icons
+reflect their tests' results. The top-level label is the selected target, not an assembly
+identity (discovery currently reports test names only).
+
 Select **Stop** to end a run that is in progress. The `dotnet` process and every process it
 started are terminated, so an application launched by a UI test is closed too. Tests that did
 not finish return to the "not run" state rather than being reported as failures.
